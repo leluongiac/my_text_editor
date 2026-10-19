@@ -1,5 +1,7 @@
 package com.example.mytexteditor
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
@@ -116,16 +118,36 @@ class EditorState {
     var rightMode by mutableStateOf(RightMode.TYPING)
     var isShiftMode by mutableStateOf(false)
     var isSymbolMode by mutableStateOf(false)
+    var isCtrlPressed by mutableStateOf(false)
 
-    fun onKey(key: String, haptic: HapticFeedback) {
+    private val undoStack = ArrayDeque<TextFieldValue>()
+    private val redoStack = ArrayDeque<TextFieldValue>()
+
+    fun pushUndoSnapshot(snapshot: TextFieldValue) {
+        if (undoStack.isEmpty() || undoStack.last() != snapshot) {
+            undoStack.addLast(snapshot)
+            if (undoStack.size > 100) {
+                undoStack.removeFirst()
+            }
+        }
+        redoStack.clear()
+    }
+
+    fun clearHistory() {
+        undoStack.clear()
+        redoStack.clear()
+    }
+
+    fun onKey(key: String, haptic: HapticFeedback, context: Context) {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         
         when (key) {
             "SHIFT" -> {
                 isShiftMode = !isShiftMode
+                isSelectMode = isShiftMode // Merged Shift & Text Selection
                 return
             }
-            "?123" -> {
+            "?123", "123" -> {
                 isSymbolMode = true
                 return
             }
@@ -133,7 +155,122 @@ class EditorState {
                 isSymbolMode = false
                 return
             }
+            "CTRL" -> {
+                isCtrlPressed = !isCtrlPressed
+                return
+            }
         }
+
+        // --- Handle CTRL Shortcuts ---
+        if (isCtrlPressed) {
+            val lower = key.lowercase()
+            when (lower) {
+                "z" -> {
+                    // Ctrl + Z: Undo
+                    if (undoStack.isNotEmpty()) {
+                        redoStack.addLast(textFieldValue)
+                        textFieldValue = undoStack.removeLast()
+                        isModified = true
+                        Toast.makeText(context, "Hoàn tác (Undo)", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Không còn thao tác để hoàn tác", Toast.LENGTH_SHORT).show()
+                    }
+                    isCtrlPressed = false
+                    return
+                }
+                "u" -> {
+                    // Ctrl + U: Redo
+                    if (redoStack.isNotEmpty()) {
+                        undoStack.addLast(textFieldValue)
+                        textFieldValue = redoStack.removeLast()
+                        isModified = true
+                        Toast.makeText(context, "Làm lại (Redo)", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Không còn thao tác để làm lại", Toast.LENGTH_SHORT).show()
+                    }
+                    isCtrlPressed = false
+                    return
+                }
+                "c" -> {
+                    // Ctrl + C: Copy
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val text = textFieldValue.text
+                    val selection = textFieldValue.selection
+                    val textToCopy = if (!selection.collapsed) {
+                        text.substring(selection.min, selection.max)
+                    } else {
+                        val startOfLine = text.lastIndexOf('\n', (selection.start - 1).coerceAtLeast(0)).let { if (it == -1) 0 else it + 1 }
+                        val endOfLine = text.indexOf('\n', selection.start).let { if (it == -1) text.length else it }
+                        text.substring(startOfLine, endOfLine)
+                    }
+                    if (textToCopy.isNotEmpty()) {
+                        clipboard.setPrimaryClip(ClipData.newPlainText("text", textToCopy))
+                        Toast.makeText(context, "Đã chép (Copy)", Toast.LENGTH_SHORT).show()
+                    }
+                    isCtrlPressed = false
+                    return
+                }
+                "v" -> {
+                    // Ctrl + V: Paste
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = clipboard.primaryClip
+                    if (clip != null && clip.itemCount > 0) {
+                        val pasteText = clip.getItemAt(0).text?.toString() ?: ""
+                        if (pasteText.isNotEmpty()) {
+                            pushUndoSnapshot(textFieldValue)
+                            val text = textFieldValue.text
+                            val selection = textFieldValue.selection
+                            val min = selection.min
+                            val max = selection.max
+                            val newText = StringBuilder(text).replace(min, max, pasteText).toString()
+                            textFieldValue = TextFieldValue(newText, TextRange(min + pasteText.length))
+                            isModified = true
+                            Toast.makeText(context, "Đã dán (Paste)", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    isCtrlPressed = false
+                    return
+                }
+                "k" -> {
+                    // Ctrl + K: Cut
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val text = textFieldValue.text
+                    val selection = textFieldValue.selection
+                    if (!selection.collapsed) {
+                        val min = selection.min
+                        val max = selection.max
+                        val textToCut = text.substring(min, max)
+                        clipboard.setPrimaryClip(ClipData.newPlainText("text", textToCut))
+                        pushUndoSnapshot(textFieldValue)
+                        val newText = StringBuilder(text).delete(min, max).toString()
+                        textFieldValue = TextFieldValue(newText, TextRange(min))
+                        isModified = true
+                        Toast.makeText(context, "Đã cắt (Cut)", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val startOfLine = text.lastIndexOf('\n', (selection.start - 1).coerceAtLeast(0)).let { if (it == -1) 0 else it + 1 }
+                        val endOfLine = text.indexOf('\n', selection.start).let { if (it == -1) text.length else (it + 1).coerceAtMost(text.length) }
+                        if (startOfLine < text.length) {
+                            val textToCut = text.substring(startOfLine, endOfLine)
+                            clipboard.setPrimaryClip(ClipData.newPlainText("text", textToCut))
+                            pushUndoSnapshot(textFieldValue)
+                            val newText = StringBuilder(text).delete(startOfLine, endOfLine).toString()
+                            textFieldValue = TextFieldValue(newText, TextRange(startOfLine.coerceAtMost(newText.length)))
+                            isModified = true
+                            Toast.makeText(context, "Đã cắt dòng (Cut)", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    isCtrlPressed = false
+                    return
+                }
+                else -> {
+                    // Other key clears CTRL latch and processes normally
+                    isCtrlPressed = false
+                }
+            }
+        }
+
+        // Before normal typing/backspacing, record undo state
+        pushUndoSnapshot(textFieldValue)
 
         val text = textFieldValue.text
         val selection = textFieldValue.selection
@@ -157,8 +294,14 @@ class EditorState {
             val insertText = when (key) {
                 "SPACE" -> " "
                 "TAB" -> "    "
-                "ENTER" -> "\n"
-                else -> key
+                "ENTER", "ENT" -> "\n"
+                else -> {
+                    if (key.length == 1 && key.first().isLetter()) {
+                        if (isShiftMode) key.uppercase() else key.lowercase()
+                    } else {
+                        key
+                    }
+                }
             }
             val min = selection.min
             val max = selection.max
@@ -227,48 +370,45 @@ fun saveToFile(context: Context, uri: Uri, content: String): Boolean {
 @Composable
 fun EditorScreen() {
     val state = remember { EditorState() }
+    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
 
     Row(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF181818)) // GNOME Adwaita Dark Workspace
-            .padding(8.dp)
+            .padding(6.dp)
             .systemBarsPadding(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // --- LEFT PANEL (26%) ---
+        // --- LEFT PANEL (27%) ---
         LeftPanel(
             state = state,
-            onKey = { state.onKey(it, haptic) },
-            onToggleSelect = {
-                state.isSelectMode = !state.isSelectMode
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            },
+            onKey = { state.onKey(it, haptic, context) },
             modifier = Modifier
-                .weight(0.26f)
+                .weight(0.27f)
                 .fillMaxHeight()
         )
 
-        // --- CENTER PANEL (48%) ---
+        // --- CENTER PANEL (46%) ---
         CenterEditorPanel(
             state = state,
             modifier = Modifier
-                .weight(0.48f)
+                .weight(0.46f)
                 .fillMaxHeight()
         )
 
-        // --- RIGHT PANEL (26%) ---
+        // --- RIGHT PANEL (27%) ---
         RightPanel(
             state = state,
-            onKey = { state.onKey(it, haptic) },
+            onKey = { state.onKey(it, haptic, context) },
             onJoystickDirection = { state.onJoystickDirection(it, haptic) },
             onToggleMode = { mode ->
                 state.rightMode = mode
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             },
             modifier = Modifier
-                .weight(0.26f)
+                .weight(0.27f)
                 .fillMaxHeight()
         )
     }
@@ -278,70 +418,97 @@ fun EditorScreen() {
 fun LeftPanel(
     state: EditorState,
     onKey: (String) -> Unit,
-    onToggleSelect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val transform: (String) -> String = {
-        if (it.length == 1 && it.first().isLetter()) {
-            if (state.isShiftMode) it.uppercase() else it.lowercase()
-        } else {
-            it
-        }
-    }
-
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.SpaceEvenly,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (state.isSymbolMode) {
-            KeyboardRow(listOf("1", "2", "3", "4", "5"), onKey)
-            KeyboardRow(listOf("{", "}", "(", ")", "[", "@"), onKey)
-            KeyboardRow(listOf("]", "<", ">", "=", ";", "#"), onKey)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                KeyButton("ABC", modifier = Modifier.weight(1.2f), bgColor = Color(0xFF3584E4)) { onKey("ABC") }
-                KeyButton("TAB", modifier = Modifier.weight(1.5f), bgColor = Color(0xFF323232)) { onKey("TAB") }
+            // Mode ?123 - Cụm tay trái: Bộ Ngoặc
+            // Row 1: 1, 2, 3, 4, 5
+            Row(modifier = Modifier.fillMaxWidth()) {
+                listOf("1", "2", "3", "4", "5").forEach { key ->
+                    KeyButton(primaryText = key, modifier = Modifier.weight(1f)) { onKey(key) }
+                }
+            }
+            // Row 2: (, ), [, ], "
+            Row(modifier = Modifier.fillMaxWidth()) {
+                listOf("(", ")", "[", "]", "\"").forEach { key ->
+                    KeyButton(primaryText = key, modifier = Modifier.weight(1f)) { onKey(key) }
+                }
+            }
+            // Row 3: {, }, <, >, '
+            Row(modifier = Modifier.fillMaxWidth()) {
+                listOf("{", "}", "<", ">", "'").forEach { key ->
+                    KeyButton(primaryText = key, modifier = Modifier.weight(1f)) { onKey(key) }
+                }
+            }
+            // Row 4: CTRL, TAB, ABC
+            Row(modifier = Modifier.fillMaxWidth()) {
                 KeyButton(
-                    text = "SELECT", 
-                    iconRes = R.drawable.ic_select,
-                    modifier = Modifier.weight(1.3f),
-                    bgColor = if (state.isSelectMode) Color(0xFFE5A50A) else Color(0xFF323232),
-                    textColor = if (state.isSelectMode) Color.Black else Color.White
-                ) { onToggleSelect() }
+                    primaryText = "CTRL", 
+                    modifier = Modifier.weight(1f),
+                    bgColor = if (state.isCtrlPressed) Color(0xFF3584E4) else Color(0xFF323232)
+                ) { onKey("CTRL") }
+                KeyButton(primaryText = "TAB", modifier = Modifier.weight(1f)) { onKey("TAB") }
+                KeyButton(primaryText = "ABC", modifier = Modifier.weight(1f), bgColor = Color(0xFF3584E4)) { onKey("ABC") }
             }
         } else {
-            KeyboardRow(listOf("Q", "W", "E", "R", "T").map(transform), onKey)
-            KeyboardRow(listOf("A", "S", "D", "F", "G").map(transform), onKey)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                listOf("Z", "X", "C", "V").forEach { key ->
-                    KeyButton(transform(key), modifier = Modifier.weight(1f)) { onKey(transform(key)) }
+            // Mode ABC - Chữ cái
+            val transform = { c: String -> if (state.isShiftMode) c.uppercase() else c.lowercase() }
+            
+            // Row 1: q(1), w(2), e(3), r(4), t(5)
+            Row(modifier = Modifier.fillMaxWidth()) {
+                val row1 = listOf("q" to "1", "w" to "2", "e" to "3", "r" to "4", "t" to "5")
+                row1.forEach { (pri, sec) ->
+                    KeyButton(
+                        primaryText = transform(pri),
+                        secondaryText = sec,
+                        modifier = Modifier.weight(1f)
+                    ) { onKey(transform(pri)) }
                 }
+            }
+            // Row 2: a(~), s(!), d(@), f(#), g($)
+            Row(modifier = Modifier.fillMaxWidth()) {
+                val row2 = listOf("a" to "~", "s" to "!", "d" to "@", "f" to "#", "g" to "$")
+                row2.forEach { (pri, sec) ->
+                    KeyButton(
+                        primaryText = transform(pri),
+                        secondaryText = sec,
+                        modifier = Modifier.weight(1f)
+                    ) { onKey(transform(pri)) }
+                }
+            }
+            // Row 3: SHIFT/CAPS, z(^), x(&), c(*), v(/)
+            Row(modifier = Modifier.fillMaxWidth()) {
                 KeyButton(
-                    text = "SHIFT", 
-                    modifier = Modifier.weight(1.3f), 
-                    bgColor = if (state.isShiftMode) Color.White else Color(0xFF323232),
+                    primaryText = "SHIFT",
+                    iconRes = R.drawable.ic_shift,
+                    modifier = Modifier.weight(1f),
+                    bgColor = if (state.isShiftMode) Color(0xFFE5A50A) else Color(0xFF323232),
                     textColor = if (state.isShiftMode) Color.Black else Color.White
                 ) { onKey("SHIFT") }
+
+                val row3 = listOf("z" to "^", "x" to "&", "c" to "*", "v" to "/")
+                row3.forEach { (pri, sec) ->
+                    KeyButton(
+                        primaryText = transform(pri),
+                        secondaryText = sec,
+                        modifier = Modifier.weight(1f)
+                    ) { onKey(transform(pri)) }
+                }
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                KeyButton("?123", modifier = Modifier.weight(1.2f), bgColor = Color(0xFF3584E4)) { onKey("?123") }
-                KeyButton("TAB", modifier = Modifier.weight(1.5f), bgColor = Color(0xFF323232)) { onKey("TAB") }
+            // Row 4: CTRL, TAB, ?123
+            Row(modifier = Modifier.fillMaxWidth()) {
                 KeyButton(
-                    text = "SELECT", 
-                    iconRes = R.drawable.ic_select,
-                    modifier = Modifier.weight(1.3f),
-                    bgColor = if (state.isSelectMode) Color(0xFFE5A50A) else Color(0xFF323232),
-                    textColor = if (state.isSelectMode) Color.Black else Color.White
-                ) { onToggleSelect() }
+                    primaryText = "CTRL", 
+                    modifier = Modifier.weight(1f),
+                    bgColor = if (state.isCtrlPressed) Color(0xFF3584E4) else Color(0xFF323232)
+                ) { onKey("CTRL") }
+                KeyButton(primaryText = "TAB", modifier = Modifier.weight(1f)) { onKey("TAB") }
+                KeyButton(primaryText = "?123", modifier = Modifier.weight(1f), bgColor = Color(0xFF3584E4)) { onKey("?123") }
             }
         }
     }
@@ -371,6 +538,7 @@ fun CenterEditorPanel(
                 state.currentUri = uri
                 state.fileName = name
                 state.textFieldValue = TextFieldValue(content, TextRange(0))
+                state.clearHistory()
                 state.isModified = false
                 Toast.makeText(context, "Đã mở $name", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
@@ -391,6 +559,7 @@ fun CenterEditorPanel(
                     state.currentUri = null
                     state.fileName = "untitled.kt"
                     state.textFieldValue = TextFieldValue("", TextRange(0))
+                    state.clearHistory()
                     state.isModified = false
                     Toast.makeText(context, "Đã lưu $name & tạo file mới", Toast.LENGTH_SHORT).show()
                 } else {
@@ -429,6 +598,7 @@ fun CenterEditorPanel(
             state.currentUri = null
             state.fileName = "untitled.kt"
             state.textFieldValue = TextFieldValue("", TextRange(0))
+            state.clearHistory()
             state.isModified = false
             Toast.makeText(context, "Đã tạo file mới", Toast.LENGTH_SHORT).show()
         }
@@ -474,12 +644,13 @@ fun CenterEditorPanel(
                         Spacer(modifier = Modifier.width(8.dp))
                         HeaderActionPill(
                             text = "Không lưu",
-                            bgColor = Color(0xFF552222), // Subtle red for discard
+                            bgColor = Color(0xFF552222),
                             onClick = {
                                 showNewFileDialog = false
                                 state.currentUri = null
                                 state.fileName = "untitled.kt"
                                 state.textFieldValue = TextFieldValue("", TextRange(0))
+                                state.clearHistory()
                                 state.isModified = false
                                 Toast.makeText(context, "Đã tạo file mới", Toast.LENGTH_SHORT).show()
                             }
@@ -496,6 +667,7 @@ fun CenterEditorPanel(
                                         state.currentUri = null
                                         state.fileName = "untitled.kt"
                                         state.textFieldValue = TextFieldValue("", TextRange(0))
+                                        state.clearHistory()
                                         state.isModified = false
                                         Toast.makeText(context, "Đã lưu & tạo file mới", Toast.LENGTH_SHORT).show()
                                     } else {
@@ -721,44 +893,120 @@ fun RightPanel(
     onToggleMode: (RightMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val transform: (String) -> String = {
-        if (it.length == 1 && it.first().isLetter()) {
-            if (state.isShiftMode) it.uppercase() else it.lowercase()
-        } else {
-            it
-        }
-    }
-
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.SpaceEvenly,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (state.rightMode == RightMode.TYPING) {
-            // Mode A: Typing Mode
             if (state.isSymbolMode) {
-                KeyboardRow(listOf("6", "7", "8", "9", "0"), onKey)
-                KeyboardRow(listOf(":", "\"", "'", "/", "\\"), onKey)
-                KeyboardRow(listOf("_", "-", "+", "!", "?", "BACKSPACE"), onKey)
+                // Mode ?123 - Cụm tay phải: Toán tử
+                // Row 1: 6, 7, 8, 9, 0
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    listOf("6", "7", "8", "9", "0").forEach { key ->
+                        KeyButton(primaryText = key, modifier = Modifier.weight(1f)) { onKey(key) }
+                    }
+                }
+                // Row 2: =, +, -, *, /
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    listOf("=", "+", "-", "*", "/").forEach { key ->
+                        KeyButton(primaryText = key, modifier = Modifier.weight(1f)) { onKey(key) }
+                    }
+                }
+                // Row 3: &, |, !, %, _
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    listOf("&", "|", "!", "%", "_").forEach { key ->
+                        KeyButton(primaryText = key, modifier = Modifier.weight(1f)) { onKey(key) }
+                    }
+                }
+                // Row 4: ⌫, SPACE (double width), ENT, JOY
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    KeyButton(
+                        primaryText = "⌫", 
+                        modifier = Modifier.weight(1f), 
+                        isRepeatable = true
+                    ) { onKey("BACKSPACE") }
+
+                    KeyButton(
+                        primaryText = "SPACE", 
+                        modifier = Modifier.weight(2f)
+                    ) { onKey("SPACE") }
+
+                    KeyButton(
+                        primaryText = "ENT", 
+                        iconRes = R.drawable.ic_enter, 
+                        modifier = Modifier.weight(1f)
+                    ) { onKey("ENTER") }
+
+                    KeyButton(
+                        primaryText = "JOY", 
+                        iconRes = R.drawable.ic_joystick, 
+                        modifier = Modifier.weight(1f), 
+                        bgColor = Color(0xFF3584E4)
+                    ) { onToggleMode(RightMode.JOYSTICK) }
+                }
             } else {
-                KeyboardRow(listOf("Y", "U", "I", "O", "P").map(transform), onKey)
-                KeyboardRow(listOf("H", "J", "K", "L").map(transform), onKey)
-                KeyboardRow(listOf("B", "N", "M", "BACKSPACE").map(transform), onKey)
-            }
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                KeyButton("ENTER", modifier = Modifier.weight(1.2f), bgColor = Color(0xFF323232)) { onKey("ENTER") }
-                KeyButton("SPACE", modifier = Modifier.weight(1.6f), bgColor = Color(0xFF323232)) { onKey("SPACE") }
-                KeyButton(
-                    text = "JOYSTICK", 
-                    iconRes = R.drawable.ic_joystick,
-                    modifier = Modifier.weight(1.2f), 
-                    bgColor = Color(0xFF3584E4)
-                ) { 
-                    onToggleMode(RightMode.JOYSTICK)
+                // Mode ABC - Chữ cái
+                val transform = { c: String -> if (state.isShiftMode) c.uppercase() else c.lowercase() }
+                
+                // Row 1: y(6), u(7), i(8), o(9), p(0)
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    val row1 = listOf("y" to "6", "u" to "7", "i" to "8", "o" to "9", "p" to "0")
+                    row1.forEach { (pri, sec) ->
+                        KeyButton(
+                            primaryText = transform(pri),
+                            secondaryText = sec,
+                            modifier = Modifier.weight(1f)
+                        ) { onKey(transform(pri)) }
+                    }
+                }
+                // Row 2: h(_), j(+), k(-), l(=), ;(:)
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    val row2 = listOf("h" to "_", "j" to "+", "k" to "-", "l" to "=", ";" to ":")
+                    row2.forEach { (pri, sec) ->
+                        KeyButton(
+                            primaryText = if (pri.length == 1 && pri.first().isLetter()) transform(pri) else pri,
+                            secondaryText = sec,
+                            modifier = Modifier.weight(1f)
+                        ) { onKey(pri) }
+                    }
+                }
+                // Row 3: b(\), n(<), m(>), ,(?), .(")
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    val row3 = listOf("b" to "\\", "n" to "<", "m" to ">", "," to "?", "." to "\"")
+                    row3.forEach { (pri, sec) ->
+                        KeyButton(
+                            primaryText = if (pri.length == 1 && pri.first().isLetter()) transform(pri) else pri,
+                            secondaryText = sec,
+                            modifier = Modifier.weight(1f)
+                        ) { onKey(pri) }
+                    }
+                }
+                // Row 4: ⌫, SPACE (double width), ENT, JOY
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    KeyButton(
+                        primaryText = "⌫", 
+                        modifier = Modifier.weight(1f), 
+                        isRepeatable = true
+                    ) { onKey("BACKSPACE") }
+
+                    KeyButton(
+                        primaryText = "SPACE", 
+                        modifier = Modifier.weight(2f)
+                    ) { onKey("SPACE") }
+
+                    KeyButton(
+                        primaryText = "ENT", 
+                        iconRes = R.drawable.ic_enter, 
+                        modifier = Modifier.weight(1f)
+                    ) { onKey("ENTER") }
+
+                    KeyButton(
+                        primaryText = "JOY", 
+                        iconRes = R.drawable.ic_joystick, 
+                        modifier = Modifier.weight(1f), 
+                        bgColor = Color(0xFF3584E4)
+                    ) { onToggleMode(RightMode.JOYSTICK) }
                 }
             }
         } else {
@@ -772,7 +1020,7 @@ fun RightPanel(
                 JoystickController(onDirection = onJoystickDirection)
             }
             KeyButton(
-                text = "KEYBOARD", 
+                primaryText = "KEYBOARD", 
                 modifier = Modifier.fillMaxWidth(), 
                 bgColor = Color(0xFF3584E4),
                 onClick = { onToggleMode(RightMode.TYPING) }
@@ -782,26 +1030,9 @@ fun RightPanel(
 }
 
 @Composable
-fun KeyboardRow(keys: List<String>, onKey: (String) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center
-    ) {
-        keys.forEach { key ->
-            val isBackspace = (key == "BACKSPACE" || key == "⌫")
-            KeyButton(
-                text = key, 
-                modifier = Modifier.weight(if (isBackspace) 1.5f else 1f),
-                isRepeatable = isBackspace,
-                onClick = { onKey(key) }
-            )
-        }
-    }
-}
-
-@Composable
 fun KeyButton(
-    text: String = "",
+    primaryText: String = "",
+    secondaryText: String? = null,
     iconRes: Int? = null,
     modifier: Modifier = Modifier,
     bgColor: Color = Color(0xFF323232),
@@ -843,10 +1074,10 @@ fun KeyButton(
                     }
                 }
             }
-            .padding(horizontal = 3.dp, vertical = 2.dp),
+            .padding(horizontal = 1.5.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Inner Box: Visual Key (36dp minimum / proportional width x 50dp height)
+        // Inner Box: Visual Key (wider keys, tight 3dp gap matching Gboard layout)
         val buttonBg = if (isPressed) {
             if (bgColor == Color(0xFF323232)) Color(0xFF484848) else bgColor.copy(alpha = 0.7f)
         } else {
@@ -856,31 +1087,49 @@ fun KeyButton(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(6.dp))
                 .background(buttonBg)
-                .border(BorderStroke(1.dp, Color(0xFF3D3D3D)), RoundedCornerShape(8.dp)),
+                .border(BorderStroke(1.dp, Color(0xFF383838)), RoundedCornerShape(6.dp)),
             contentAlignment = Alignment.Center
         ) {
             if (iconRes != null) {
                 Icon(
                     painter = painterResource(id = iconRes),
-                    contentDescription = text,
+                    contentDescription = primaryText,
                     tint = textColor,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             } else {
-                val display = when (text) {
-                    "BACKSPACE" -> "⌫"
-                    "ENTER" -> "↵"
-                    "SHIFT" -> "⇧"
-                    else -> text
+                // Secondary key in top right corner (Muted font 11sp, color #8A8A8E)
+                if (!secondaryText.isNullOrEmpty()) {
+                    Text(
+                        text = secondaryText,
+                        color = Color(0xFF8A8A8E),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Normal,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 2.dp, end = 4.dp)
+                    )
                 }
+
+                val display = when (primaryText) {
+                    "BACKSPACE" -> "⌫"
+                    else -> primaryText
+                }
+                
+                // Primary key in center (or slightly offset down if secondary key is present)
+                val isFunctionKey = display.length > 1
                 Text(
                     text = display, 
                     color = textColor, 
-                    fontSize = 15.sp, 
+                    fontSize = if (isFunctionKey) 12.sp else 17.sp, 
                     fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = if (isFunctionKey) FontWeight.SemiBold else FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset(y = if (!secondaryText.isNullOrEmpty()) 2.dp else 0.dp)
                 )
             }
         }
