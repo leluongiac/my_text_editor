@@ -703,6 +703,9 @@ fun CenterEditorPanel(
                     }
                     state.textFieldValue = newValue
                 },
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    imeAction = androidx.compose.ui.text.input.ImeAction.None
+                ),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(
