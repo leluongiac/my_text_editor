@@ -139,7 +139,7 @@ class EditorState {
     }
 
     fun onKey(key: String, haptic: HapticFeedback, context: Context) {
-        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        // haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         
         when (key) {
             "SHIFT" -> {
@@ -217,7 +217,9 @@ class EditorState {
                     if (clip != null && clip.itemCount > 0) {
                         val pasteText = clip.getItemAt(0).text?.toString() ?: ""
                         if (pasteText.isNotEmpty()) {
-                            pushUndoSnapshot(textFieldValue)
+                            if (key in listOf("SPACE", "ENTER", "ENT", "BACKSPACE", "⌫", "TAB")) {
+                                pushUndoSnapshot(textFieldValue)
+                            }
                             val text = textFieldValue.text
                             val selection = textFieldValue.selection
                             val min = selection.min
