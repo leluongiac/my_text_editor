@@ -1,5 +1,7 @@
 package com.example.mytexteditor
 
+import android.view.HapticFeedbackConstants
+import androidx.compose.ui.platform.LocalView
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -138,7 +140,7 @@ class EditorState {
         redoStack.clear()
     }
 
-    fun onKey(key: String, haptic: HapticFeedback, context: Context) {
+    fun onKey(key: String, context: Context) {
         // haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         
         when (key) {
@@ -373,7 +375,8 @@ fun saveToFile(context: Context, uri: Uri, content: String): Boolean {
 fun EditorScreen() {
     val state = remember { EditorState() }
     val context = LocalContext.current
-    val haptic = LocalHapticFeedback.current
+    val view = LocalView.current
+    // val haptic = LocalHapticFeedback.current
 
     Row(
         modifier = Modifier
@@ -385,7 +388,10 @@ fun EditorScreen() {
         // --- LEFT PANEL (27%) ---
         LeftPanel(
             state = state,
-            onKey = { state.onKey(it, haptic, context) },
+            onKey = {
+                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                state.onKey(it, context) 
+            },
             modifier = Modifier
                 .weight(0.27f)
                 .fillMaxHeight()
@@ -402,7 +408,10 @@ fun EditorScreen() {
         // --- RIGHT PANEL (27%) ---
         RightPanel(
             state = state,
-            onKey = { state.onKey(it, haptic, context) },
+            onKey = {
+                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                state.onKey(it, context) 
+            },
             onJoystickDirection = { state.onJoystickDirection(it, haptic) },
             onToggleMode = { mode ->
                 state.rightMode = mode
