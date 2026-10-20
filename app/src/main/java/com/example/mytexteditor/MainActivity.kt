@@ -421,8 +421,8 @@ fun LeftPanel(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.SpaceEvenly,
+        modifier = modifier.padding(bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (state.isSymbolMode) {
@@ -894,8 +894,8 @@ fun RightPanel(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.SpaceEvenly,
+        modifier = modifier.padding(bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (state.rightMode == RightMode.TYPING) {
