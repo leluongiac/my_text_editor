@@ -378,7 +378,6 @@ fun EditorScreen() {
             .fillMaxSize()
             .background(Color(0xFF181818)) // GNOME Adwaita Dark Workspace
             .padding(6.dp)
-            .systemBarsPadding(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // --- LEFT PANEL (27%) ---
