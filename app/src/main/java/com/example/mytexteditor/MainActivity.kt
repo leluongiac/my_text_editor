@@ -219,9 +219,7 @@ class EditorState {
                     if (clip != null && clip.itemCount > 0) {
                         val pasteText = clip.getItemAt(0).text?.toString() ?: ""
                         if (pasteText.isNotEmpty()) {
-                            if (key in listOf("SPACE", "ENTER", "ENT", "BACKSPACE", "⌫", "TAB")) {
-                                pushUndoSnapshot(textFieldValue)
-                            }
+                            pushUndoSnapshot(textFieldValue)
                             val text = textFieldValue.text
                             val selection = textFieldValue.selection
                             val min = selection.min
@@ -274,7 +272,9 @@ class EditorState {
         }
 
         // Before normal typing/backspacing, record undo state
-        pushUndoSnapshot(textFieldValue)
+        if (key in listOf("SPACE", "ENTER", "ENT", "BACKSPACE", "⌫", "TAB")) {
+            pushUndoSnapshot(textFieldValue)
+        }
 
         val text = textFieldValue.text
         val selection = textFieldValue.selection
@@ -387,7 +387,9 @@ fun EditorScreen() {
     ) {
         // --- LEFT PANEL (27%) ---
         LeftPanel(
-            state = state,
+            isShiftMode = state.isShiftMode,
+            isSymbolMode = state.isSymbolMode,
+            isCtrlPressed = state.isCtrlPressed,
             onKey = {
                 view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                 state.onKey(it, context) 
@@ -407,7 +409,9 @@ fun EditorScreen() {
 
         // --- RIGHT PANEL (27%) ---
         RightPanel(
-            state = state,
+            rightMode = state.rightMode,
+            isShiftMode = state.isShiftMode,
+            isSymbolMode = state.isSymbolMode,
             onKey = {
                 view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                 state.onKey(it, context) 
@@ -426,7 +430,9 @@ fun EditorScreen() {
 
 @Composable
 fun LeftPanel(
-    state: EditorState,
+    isShiftMode: Boolean,
+    isSymbolMode: Boolean,
+    isCtrlPressed: Boolean,
     onKey: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -435,7 +441,7 @@ fun LeftPanel(
         verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        if (state.isSymbolMode) {
+        if (isSymbolMode) {
             // Mode ?123 - Cụm tay trái: Bộ Ngoặc
             // Row 1: 1, 2, 3, 4, 5
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -460,14 +466,14 @@ fun LeftPanel(
                 KeyButton(
                     primaryText = "CTRL", 
                     modifier = Modifier.weight(1f),
-                    bgColor = if (state.isCtrlPressed) Color(0xFF3584E4) else Color(0xFF323232)
+                    bgColor = if (isCtrlPressed) Color(0xFF3584E4) else Color(0xFF323232)
                 ) { onKey("CTRL") }
                 KeyButton(primaryText = "TAB", modifier = Modifier.weight(1f)) { onKey("TAB") }
                 KeyButton(primaryText = "ABC", modifier = Modifier.weight(1f), bgColor = Color(0xFF3584E4)) { onKey("ABC") }
             }
         } else {
             // Mode ABC - Chữ cái
-            val transform = { c: String -> if (state.isShiftMode) c.uppercase() else c.lowercase() }
+            val transform = { c: String -> if (isShiftMode) c.uppercase() else c.lowercase() }
             
             // Row 1: q(1), w(2), e(3), r(4), t(5)
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -497,8 +503,8 @@ fun LeftPanel(
                     primaryText = "SHIFT",
                     iconRes = R.drawable.ic_shift,
                     modifier = Modifier.weight(1f),
-                    bgColor = if (state.isShiftMode) Color(0xFFE5A50A) else Color(0xFF323232),
-                    textColor = if (state.isShiftMode) Color.Black else Color.White
+                    bgColor = if (isShiftMode) Color(0xFFE5A50A) else Color(0xFF323232),
+                    textColor = if (isShiftMode) Color.Black else Color.White
                 ) { onKey("SHIFT") }
 
                 val row3 = listOf("z" to "^", "x" to "&", "c" to "*", "v" to "/")
@@ -515,7 +521,7 @@ fun LeftPanel(
                 KeyButton(
                     primaryText = "CTRL", 
                     modifier = Modifier.weight(1f),
-                    bgColor = if (state.isCtrlPressed) Color(0xFF3584E4) else Color(0xFF323232)
+                    bgColor = if (isCtrlPressed) Color(0xFF3584E4) else Color(0xFF323232)
                 ) { onKey("CTRL") }
                 KeyButton(primaryText = "TAB", modifier = Modifier.weight(1f)) { onKey("TAB") }
                 KeyButton(primaryText = "?123", modifier = Modifier.weight(1f), bgColor = Color(0xFF3584E4)) { onKey("?123") }
@@ -900,7 +906,9 @@ fun ChevronUpIcon(
 
 @Composable
 fun RightPanel(
-    state: EditorState,
+    rightMode: RightMode,
+    isShiftMode: Boolean,
+    isSymbolMode: Boolean,
     onKey: (String) -> Unit,
     onJoystickDirection: (Direction) -> Unit,
     onToggleMode: (RightMode) -> Unit,
@@ -911,8 +919,8 @@ fun RightPanel(
         verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        if (state.rightMode == RightMode.TYPING) {
-            if (state.isSymbolMode) {
+        if (rightMode == RightMode.TYPING) {
+            if (isSymbolMode) {
                 // Mode ?123 - Cụm tay phải: Toán tử
                 // Row 1: 6, 7, 8, 9, 0
                 Row(modifier = Modifier.fillMaxWidth()) {
@@ -960,7 +968,7 @@ fun RightPanel(
                 }
             } else {
                 // Mode ABC - Chữ cái
-                val transform = { c: String -> if (state.isShiftMode) c.uppercase() else c.lowercase() }
+                val transform = { c: String -> if (isShiftMode) c.uppercase() else c.lowercase() }
                 
                 // Row 1: y(6), u(7), i(8), o(9), p(0)
                 Row(modifier = Modifier.fillMaxWidth()) {
