@@ -376,7 +376,7 @@ fun EditorScreen() {
     val state = remember { EditorState() }
     val context = LocalContext.current
     val view = LocalView.current
-    // val haptic = LocalHapticFeedback.current
+    val haptic = LocalHapticFeedback.current
 
     Row(
         modifier = Modifier
