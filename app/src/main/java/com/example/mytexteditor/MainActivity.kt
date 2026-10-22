@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -21,7 +22,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -66,6 +66,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -1217,54 +1218,18 @@ fun JoystickController(onDirection: (Direction) -> Unit) {
     var isDragging by remember { mutableStateOf(false) }
     
     val density = LocalDensity.current
-    val maxRadiusPx = with(density) { 60.dp.toPx() } // Limit thumb movement
-    val deadZonePx = with(density) { 20.dp.toPx() }  // Deadzone to prevent micro-drifts and accidental activation
-    
-    // Keyed ONLY on isDragging so touch moves don't constantly cancel and restart the coroutine
-    LaunchedEffect(isDragging) {
-        while (isDragging) {
-            val offset = dragOffset
-            val distance = offset.getDistance()
-            if (distance > deadZonePx) {
-                // 1. Initial micro-step
-                val angle = atan2(offset.y, offset.x)
-                val degrees = Math.toDegrees(angle.toDouble()).let { if (it < 0) it + 360 else it }
-                val initialDirection = when {
-                    degrees >= 315 || degrees < 45 -> Direction.RIGHT
-                    degrees >= 45 && degrees < 135 -> Direction.DOWN
-                    degrees >= 135 && degrees < 225 -> Direction.LEFT
-                    else -> Direction.UP
-                }
-                onDirection(initialDirection)
+    val maxRadiusPx = with(density) { 60.dp.toPx() }
+    val deadZonePx = with(density) { 20.dp.toPx() }
+    val currentOnDirection by rememberUpdatedState(onDirection)
 
-                // 2. Initial hold delay: allows precise single-step nudge before continuous repeat begins
-                delay(320)
-
-                // 3. Repeat loop with velocity-sensitive analog scaling
-                while (isDragging && dragOffset.getDistance() > deadZonePx) {
-                    val currentOff = dragOffset
-                    val curDist = currentOff.getDistance()
-                    val curAngle = atan2(currentOff.y, currentOff.x)
-                    val curDeg = Math.toDegrees(curAngle.toDouble()).let { if (it < 0) it + 360 else it }
-                    val curDir = when {
-                        curDeg >= 315 || curDeg < 45 -> Direction.RIGHT
-                        curDeg >= 45 && curDeg < 135 -> Direction.DOWN
-                        curDeg >= 135 && curDeg < 225 -> Direction.LEFT
-                        else -> Direction.UP
-                    }
-                    onDirection(curDir)
-
-                    // Analog rate scaling:
-                    // Near deadzone (micro-adjustment) -> 240ms (slow, highly controllable)
-                    // Full deflection (rapid movement) -> 80ms
-                    val deflectionRatio = ((curDist - deadZonePx) / (maxRadiusPx - deadZonePx)).coerceIn(0f, 1f)
-                    val dynamicDelay = (240 - (deflectionRatio * 160)).toLong()
-                    delay(dynamicDelay)
-                }
-            } else {
-                // Polling interval while finger is resting in deadzone
-                delay(30)
-            }
+    fun directionFor(offset: Offset): Direction {
+        val angle = atan2(offset.y, offset.x)
+        val degrees = Math.toDegrees(angle.toDouble()).let { if (it < 0) it + 360 else it }
+        return when {
+            degrees >= 315 || degrees < 45 -> Direction.RIGHT
+            degrees < 135 -> Direction.DOWN
+            degrees < 225 -> Direction.LEFT
+            else -> Direction.UP
         }
     }
     
@@ -1274,30 +1239,72 @@ fun JoystickController(onDirection: (Direction) -> Unit) {
             .clip(CircleShape)
             .background(Color(0xFF262626)) // GNOME Dark Base
             .border(BorderStroke(1.dp, Color(0xFF383838)), CircleShape)
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = { isDragging = true },
-                    onDragEnd = {
-                        isDragging = false
-                        dragOffset = Offset.Zero // Snap back to center
-                    },
-                    onDragCancel = {
-                        isDragging = false
-                        dragOffset = Offset.Zero
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        val newOffset = dragOffset + dragAmount
-                        val distance = newOffset.getDistance()
-                        
-                        // Constrain knob inside the base
-                        dragOffset = if (distance > maxRadiusPx) {
-                            newOffset / distance * maxRadiusPx
-                        } else {
-                            newOffset
+            .pointerInput(maxRadiusPx, deadZonePx) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val center = Offset(size.width / 2f, size.height / 2f)
+                    val downOffset = down.position - center
+                    val outerRadius = size.minDimension / 2f
+
+                    if (downOffset.getDistance() <= outerRadius) {
+                        fun updateOffset(position: Offset) {
+                            val offset = position - center
+                            val distance = offset.getDistance()
+                            dragOffset = if (distance > maxRadiusPx) {
+                                offset / distance * maxRadiusPx
+                            } else {
+                                offset
+                            }
+                        }
+
+                        down.consume()
+                        isDragging = true
+                        updateOffset(down.position)
+
+                        coroutineScope {
+                            val repeatJob = launch {
+                                val activationDelayMs = 300L
+
+                                while (isActive && isDragging) {
+                                    if (dragOffset.getDistance() <= deadZonePx) {
+                                        delay(16)
+                                        continue
+                                    }
+
+                                    val activationTime = SystemClock.uptimeMillis()
+                                    currentOnDirection(directionFor(dragOffset))
+                                    delay(activationDelayMs)
+
+                                    while (isActive && isDragging && dragOffset.getDistance() > deadZonePx) {
+                                        currentOnDirection(directionFor(dragOffset))
+
+                                        val heldDurationMs = SystemClock.uptimeMillis() - activationTime
+                                        val repeatDelayMs = when {
+                                            heldDurationMs >= 1_200L -> 20L
+                                            else -> (100L - ((heldDurationMs - activationDelayMs).coerceAtLeast(0L) * 55L / 900L))
+                                                .coerceIn(45L, 100L)
+                                        }
+                                        delay(repeatDelayMs)
+                                    }
+                                }
+                            }
+
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    change.consume()
+                                    if (!change.pressed) break
+                                    updateOffset(change.position)
+                                }
+                            } finally {
+                                repeatJob.cancel()
+                                isDragging = false
+                                dragOffset = Offset.Zero
+                            }
                         }
                     }
-                )
+                }
             },
         contentAlignment = Alignment.Center
     ) {
