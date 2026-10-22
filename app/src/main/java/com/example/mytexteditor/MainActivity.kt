@@ -52,6 +52,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalTextInputService
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -94,6 +95,8 @@ enum class Direction { UP, DOWN, LEFT, RIGHT }
 
 @Stable
 class EditorState {
+    var layoutResult by mutableStateOf<TextLayoutResult?>(null)
+
     var textFieldValue by mutableStateOf(
         TextFieldValue(
             text = """
@@ -327,8 +330,25 @@ class EditorState {
         when (direction) {
             Direction.RIGHT -> newCursor = (currentCursor + 1).coerceAtMost(text.length)
             Direction.LEFT -> newCursor = (currentCursor - 1).coerceAtLeast(0)
-            Direction.DOWN -> newCursor = (currentCursor + 30).coerceAtMost(text.length)
-            Direction.UP -> newCursor = (currentCursor - 30).coerceAtLeast(0)
+            Direction.DOWN, Direction.UP -> {
+                val layout = layoutResult
+                if (layout == null) {
+                    newCursor = if (direction == Direction.UP) {
+                        getFallbackUp(text, currentCursor)
+                    } else {
+                        getFallbackDown(text, currentCursor)
+                    }
+                } else {
+                    val safeCursor = currentCursor.coerceIn(0, text.length)
+                    val currentLine = layout.getLineForOffset(safeCursor)
+                    val targetLine = if (direction == Direction.UP) currentLine - 1 else currentLine + 1
+                    if (targetLine in 0 until layout.lineCount) {
+                        val x = layout.getCursorRect(safeCursor).left
+                        val y = (layout.getLineTop(targetLine) + layout.getLineBottom(targetLine)) / 2f
+                        newCursor = layout.getOffsetForPosition(Offset(x, y))
+                    }
+                }
+            }
         }
         
         val newSelection = if (isSelectMode) {
@@ -338,6 +358,39 @@ class EditorState {
         }
         
         textFieldValue = textFieldValue.copy(selection = newSelection)
+    }
+
+    private fun getFallbackUp(text: String, cursor: Int): Int {
+        val safeCursor = cursor.coerceIn(0, text.length)
+        val currentLineStart = if (safeCursor == 0) 0 else {
+            text.lastIndexOf('\n', safeCursor - 1) + 1
+        }
+        if (currentLineStart == 0) return safeCursor
+
+        val previousLineEnd = currentLineStart - 1
+        val previousLineStart = if (previousLineEnd == 0) 0 else {
+            text.lastIndexOf('\n', previousLineEnd - 1) + 1
+        }
+        val column = safeCursor - currentLineStart
+        return (previousLineStart + column).coerceAtMost(previousLineEnd)
+    }
+
+    private fun getFallbackDown(text: String, cursor: Int): Int {
+        val safeCursor = cursor.coerceIn(0, text.length)
+        val currentLineStart = if (safeCursor == 0) 0 else {
+            text.lastIndexOf('\n', safeCursor - 1) + 1
+        }
+        val currentLineEnd = text.indexOf('\n', safeCursor).let {
+            if (it == -1) text.length else it
+        }
+        if (currentLineEnd == text.length) return safeCursor
+
+        val nextLineStart = currentLineEnd + 1
+        val nextLineEnd = text.indexOf('\n', nextLineStart).let {
+            if (it == -1) text.length else it
+        }
+        val column = safeCursor - currentLineStart
+        return (nextLineStart + column).coerceAtMost(nextLineEnd)
     }
 }
 
@@ -720,6 +773,7 @@ fun CenterEditorPanel(
                     }
                     state.textFieldValue = newValue
                 },
+                onTextLayout = { state.layoutResult = it },
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     imeAction = androidx.compose.ui.text.input.ImeAction.None
                 ),
