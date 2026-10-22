@@ -66,7 +66,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -321,7 +320,7 @@ class EditorState {
 
     fun onJoystickDirection(direction: Direction, haptic: HapticFeedback) {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        
+    
         val text = textFieldValue.text
         val selection = textFieldValue.selection
         val currentCursor = selection.end
@@ -347,11 +346,14 @@ class EditorState {
                         val x = layout.getCursorRect(safeCursor).left
                         val y = (layout.getLineTop(targetLine) + layout.getLineBottom(targetLine)) / 2f
                         newCursor = layout.getOffsetForPosition(Offset(x, y))
+                    } else {
+                        // SỬA TẠI ĐÂY: Nếu vượt biên thì nhảy về kịch đầu hoặc kịch cuối
+                        newCursor = if (direction == Direction.UP) 0 else text.length
                     }
                 }
             }
         }
-        
+    
         val newSelection = if (isSelectMode) {
             TextRange(anchor, newCursor)
         } else {
@@ -1221,6 +1223,7 @@ fun JoystickController(onDirection: (Direction) -> Unit) {
     val maxRadiusPx = with(density) { 60.dp.toPx() }
     val deadZonePx = with(density) { 20.dp.toPx() }
     val currentOnDirection by rememberUpdatedState(onDirection)
+    val scope = rememberCoroutineScope()
 
     fun directionFor(offset: Offset): Direction {
         val angle = atan2(offset.y, offset.x)
@@ -1243,66 +1246,61 @@ fun JoystickController(onDirection: (Direction) -> Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val center = Offset(size.width / 2f, size.height / 2f)
-                    val downOffset = down.position - center
-                    val outerRadius = size.minDimension / 2f
 
-                    if (downOffset.getDistance() <= outerRadius) {
-                        fun updateOffset(position: Offset) {
-                            val offset = position - center
-                            val distance = offset.getDistance()
-                            dragOffset = if (distance > maxRadiusPx) {
-                                offset / distance * maxRadiusPx
-                            } else {
-                                offset
+                    fun updateOffset(position: Offset) {
+                        val offset = position - center
+                        val distance = offset.getDistance()
+                        dragOffset = if (distance > maxRadiusPx) {
+                            offset / distance * maxRadiusPx
+                        } else {
+                            offset
+                        }
+                    }
+
+                    down.consume()
+                    isDragging = true
+                    updateOffset(down.position)
+
+                    val repeatJob = scope.launch {
+                        val activationDelayMs = 300L
+
+                        while (isActive && isDragging) {
+                            if (dragOffset.getDistance() <= deadZonePx) {
+                                delay(16)
+                                continue
+                            }
+
+                            val activationTime = SystemClock.uptimeMillis()
+                            // Bước 1: 1 tick đầu tiên
+                            currentOnDirection(directionFor(dragOffset))
+                            delay(activationDelayMs)
+
+                            // Bước 2 & 3: Lặp và tăng tốc mượt mà theo thời gian
+                            while (isActive && isDragging && dragOffset.getDistance() > deadZonePx) {
+                                currentOnDirection(directionFor(dragOffset))
+
+                                val heldDurationMs = SystemClock.uptimeMillis() - activationTime
+                                // Giảm mượt mà từ 100ms xuống thẳng 20ms trong vòng 1.5 giây
+                                val progress = ((heldDurationMs - activationDelayMs).coerceAtLeast(0L) / 1200f).coerceIn(0f, 1f)
+                                val repeatDelayMs = (100L - (progress * 80L)).toLong() // từ 100ms -> 20ms
+
+                                delay(repeatDelayMs)
                             }
                         }
+                    }
 
-                        down.consume()
-                        isDragging = true
-                        updateOffset(down.position)
-
-                        coroutineScope {
-                            val repeatJob = launch {
-                                val activationDelayMs = 300L
-
-                                while (isActive && isDragging) {
-                                    if (dragOffset.getDistance() <= deadZonePx) {
-                                        delay(16)
-                                        continue
-                                    }
-
-                                    val activationTime = SystemClock.uptimeMillis()
-                                    currentOnDirection(directionFor(dragOffset))
-                                    delay(activationDelayMs)
-
-                                    while (isActive && isDragging && dragOffset.getDistance() > deadZonePx) {
-                                        currentOnDirection(directionFor(dragOffset))
-
-                                        val heldDurationMs = SystemClock.uptimeMillis() - activationTime
-                                        val repeatDelayMs = when {
-                                            heldDurationMs >= 1_200L -> 20L
-                                            else -> (100L - ((heldDurationMs - activationDelayMs).coerceAtLeast(0L) * 55L / 900L))
-                                                .coerceIn(45L, 100L)
-                                        }
-                                        delay(repeatDelayMs)
-                                    }
-                                }
-                            }
-
-                            try {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                    change.consume()
-                                    if (!change.pressed) break
-                                    updateOffset(change.position)
-                                }
-                            } finally {
-                                repeatJob.cancel()
-                                isDragging = false
-                                dragOffset = Offset.Zero
-                            }
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            change.consume()
+                            if (!change.pressed) break
+                            updateOffset(change.position)
                         }
+                    } finally {
+                        repeatJob.cancel()
+                        isDragging = false
+                        dragOffset = Offset.Zero
                     }
                 }
             },
