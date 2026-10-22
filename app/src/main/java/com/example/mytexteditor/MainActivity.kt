@@ -75,13 +75,13 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         // Hide system bars for an immersive editor experience
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
         insetsController.hide(WindowInsetsCompat.Type.systemBars())
         insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        
+
         setContent {
             MaterialTheme {
                 EditorScreen()
@@ -145,21 +145,24 @@ class EditorState {
 
     fun onKey(key: String, context: Context) {
         // haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        
+
         when (key) {
             "SHIFT" -> {
                 isShiftMode = !isShiftMode
                 isSelectMode = isShiftMode // Merged Shift & Text Selection
                 return
             }
+
             "?123", "123" -> {
                 isSymbolMode = true
                 return
             }
+
             "ABC" -> {
                 isSymbolMode = false
                 return
             }
+
             "CTRL" -> {
                 isCtrlPressed = !isCtrlPressed
                 return
@@ -183,6 +186,7 @@ class EditorState {
                     isCtrlPressed = false
                     return
                 }
+
                 "u" -> {
                     // Ctrl + U: Redo
                     if (redoStack.isNotEmpty()) {
@@ -196,6 +200,7 @@ class EditorState {
                     isCtrlPressed = false
                     return
                 }
+
                 "c" -> {
                     // Ctrl + C: Copy
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -204,7 +209,8 @@ class EditorState {
                     val textToCopy = if (!selection.collapsed) {
                         text.substring(selection.min, selection.max)
                     } else {
-                        val startOfLine = text.lastIndexOf('\n', (selection.start - 1).coerceAtLeast(0)).let { if (it == -1) 0 else it + 1 }
+                        val startOfLine = text.lastIndexOf('\n', (selection.start - 1).coerceAtLeast(0))
+                            .let { if (it == -1) 0 else it + 1 }
                         val endOfLine = text.indexOf('\n', selection.start).let { if (it == -1) text.length else it }
                         text.substring(startOfLine, endOfLine)
                     }
@@ -215,6 +221,7 @@ class EditorState {
                     isCtrlPressed = false
                     return
                 }
+
                 "v" -> {
                     // Ctrl + V: Paste
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -236,6 +243,7 @@ class EditorState {
                     isCtrlPressed = false
                     return
                 }
+
                 "k" -> {
                     // Ctrl + K: Cut
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -252,14 +260,17 @@ class EditorState {
                         isModified = true
                         Toast.makeText(context, "Đã cắt (Cut)", Toast.LENGTH_SHORT).show()
                     } else {
-                        val startOfLine = text.lastIndexOf('\n', (selection.start - 1).coerceAtLeast(0)).let { if (it == -1) 0 else it + 1 }
-                        val endOfLine = text.indexOf('\n', selection.start).let { if (it == -1) text.length else (it + 1).coerceAtMost(text.length) }
+                        val startOfLine = text.lastIndexOf('\n', (selection.start - 1).coerceAtLeast(0))
+                            .let { if (it == -1) 0 else it + 1 }
+                        val endOfLine = text.indexOf('\n', selection.start)
+                            .let { if (it == -1) text.length else (it + 1).coerceAtMost(text.length) }
                         if (startOfLine < text.length) {
                             val textToCut = text.substring(startOfLine, endOfLine)
                             clipboard.setPrimaryClip(ClipData.newPlainText("text", textToCut))
                             pushUndoSnapshot(textFieldValue)
                             val newText = StringBuilder(text).delete(startOfLine, endOfLine).toString()
-                            textFieldValue = TextFieldValue(newText, TextRange(startOfLine.coerceAtMost(newText.length)))
+                            textFieldValue =
+                                TextFieldValue(newText, TextRange(startOfLine.coerceAtMost(newText.length)))
                             isModified = true
                             Toast.makeText(context, "Đã cắt dòng (Cut)", Toast.LENGTH_SHORT).show()
                         }
@@ -267,6 +278,7 @@ class EditorState {
                     isCtrlPressed = false
                     return
                 }
+
                 else -> {
                     // Other key clears CTRL latch and processes normally
                     isCtrlPressed = false
@@ -281,7 +293,7 @@ class EditorState {
 
         val text = textFieldValue.text
         val selection = textFieldValue.selection
-        
+
         if (key == "BACKSPACE" || key == "⌫") {
             if (selection.collapsed) {
                 if (selection.start > 0) {
@@ -320,12 +332,12 @@ class EditorState {
 
     fun onJoystickDirection(direction: Direction, haptic: HapticFeedback) {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-    
+
         val text = textFieldValue.text
         val selection = textFieldValue.selection
         val currentCursor = selection.end
         val anchor = if (isSelectMode) selection.start else currentCursor
-        
+
         var newCursor = currentCursor
         when (direction) {
             Direction.RIGHT -> newCursor = (currentCursor + 1).coerceAtMost(text.length)
@@ -353,13 +365,13 @@ class EditorState {
                 }
             }
         }
-    
+
         val newSelection = if (isSelectMode) {
             TextRange(anchor, newCursor)
         } else {
             TextRange(newCursor)
         }
-        
+
         textFieldValue = textFieldValue.copy(selection = newSelection)
     }
 
@@ -448,7 +460,7 @@ fun EditorScreen() {
             isCtrlPressed = state.isCtrlPressed,
             onKey = {
                 view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                state.onKey(it, context) 
+                state.onKey(it, context)
             },
             modifier = Modifier
                 .weight(0.27f)
@@ -470,7 +482,7 @@ fun EditorScreen() {
             isSymbolMode = state.isSymbolMode,
             onKey = {
                 view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                state.onKey(it, context) 
+                state.onKey(it, context)
             },
             onJoystickDirection = { state.onJoystickDirection(it, haptic) },
             onToggleMode = { mode ->
@@ -520,17 +532,21 @@ fun LeftPanel(
             // Row 4: CTRL, TAB, ABC
             Row(modifier = Modifier.fillMaxWidth()) {
                 KeyButton(
-                    primaryText = "CTRL", 
+                    primaryText = "CTRL",
                     modifier = Modifier.weight(1f),
                     bgColor = if (isCtrlPressed) Color(0xFF3584E4) else Color(0xFF323232)
                 ) { onKey("CTRL") }
                 KeyButton(primaryText = "TAB", modifier = Modifier.weight(1f)) { onKey("TAB") }
-                KeyButton(primaryText = "ABC", modifier = Modifier.weight(1f), bgColor = Color(0xFF3584E4)) { onKey("ABC") }
+                KeyButton(
+                    primaryText = "ABC",
+                    modifier = Modifier.weight(1f),
+                    bgColor = Color(0xFF3584E4)
+                ) { onKey("ABC") }
             }
         } else {
             // Mode ABC - Chữ cái
             val transform = { c: String -> if (isShiftMode) c.uppercase() else c.lowercase() }
-            
+
             // Row 1: q(1), w(2), e(3), r(4), t(5)
             Row(modifier = Modifier.fillMaxWidth()) {
                 val row1 = listOf("q" to "1", "w" to "2", "e" to "3", "r" to "4", "t" to "5")
@@ -575,12 +591,16 @@ fun LeftPanel(
             // Row 4: CTRL, TAB, ?123
             Row(modifier = Modifier.fillMaxWidth()) {
                 KeyButton(
-                    primaryText = "CTRL", 
+                    primaryText = "CTRL",
                     modifier = Modifier.weight(1f),
                     bgColor = if (isCtrlPressed) Color(0xFF3584E4) else Color(0xFF323232)
                 ) { onKey("CTRL") }
                 KeyButton(primaryText = "TAB", modifier = Modifier.weight(1f)) { onKey("TAB") }
-                KeyButton(primaryText = "?123", modifier = Modifier.weight(1f), bgColor = Color(0xFF3584E4)) { onKey("?123") }
+                KeyButton(
+                    primaryText = "?123",
+                    modifier = Modifier.weight(1f),
+                    bgColor = Color(0xFF3584E4)
+                ) { onKey("?123") }
             }
         }
     }
@@ -783,9 +803,9 @@ fun CenterEditorPanel(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(
-                        start = 16.dp, 
-                        end = 16.dp, 
-                        top = if (isHeaderExpanded) 62.dp else 26.dp, 
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = if (isHeaderExpanded) 62.dp else 26.dp,
                         bottom = 16.dp
                     ),
                 textStyle = TextStyle(
@@ -807,7 +827,7 @@ fun CenterEditorPanel(
                     .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
                     .background(Color(0xFF2A2A2A))
                     .border(
-                        BorderStroke(1.dp, Color(0xFF3D3D3D)), 
+                        BorderStroke(1.dp, Color(0xFF3D3D3D)),
                         RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp)
                     )
                     .clickable { isHeaderExpanded = true }
@@ -1000,33 +1020,33 @@ fun RightPanel(
                 // Row 4: ⌫, SPACE (double width), ENT, JOY
                 Row(modifier = Modifier.fillMaxWidth()) {
                     KeyButton(
-                        primaryText = "⌫", 
-                        modifier = Modifier.weight(1f), 
+                        primaryText = "⌫",
+                        modifier = Modifier.weight(1f),
                         isRepeatable = true
                     ) { onKey("BACKSPACE") }
 
                     KeyButton(
-                        primaryText = "SPACE", 
+                        primaryText = "SPACE",
                         modifier = Modifier.weight(2f)
                     ) { onKey("SPACE") }
 
                     KeyButton(
-                        primaryText = "ENT", 
-                        iconRes = R.drawable.ic_enter, 
+                        primaryText = "ENT",
+                        iconRes = R.drawable.ic_enter,
                         modifier = Modifier.weight(1f)
                     ) { onKey("ENTER") }
 
                     KeyButton(
-                        primaryText = "JOY", 
-                        iconRes = R.drawable.ic_joystick, 
-                        modifier = Modifier.weight(1f), 
+                        primaryText = "JOY",
+                        iconRes = R.drawable.ic_joystick,
+                        modifier = Modifier.weight(1f),
                         bgColor = Color(0xFF3584E4)
                     ) { onToggleMode(RightMode.JOYSTICK) }
                 }
             } else {
                 // Mode ABC - Chữ cái
                 val transform = { c: String -> if (isShiftMode) c.uppercase() else c.lowercase() }
-                
+
                 // Row 1: y(6), u(7), i(8), o(9), p(0)
                 Row(modifier = Modifier.fillMaxWidth()) {
                     val row1 = listOf("y" to "6", "u" to "7", "i" to "8", "o" to "9", "p" to "0")
@@ -1063,26 +1083,26 @@ fun RightPanel(
                 // Row 4: ⌫, SPACE (double width), ENT, JOY
                 Row(modifier = Modifier.fillMaxWidth()) {
                     KeyButton(
-                        primaryText = "⌫", 
-                        modifier = Modifier.weight(1f), 
+                        primaryText = "⌫",
+                        modifier = Modifier.weight(1f),
                         isRepeatable = true
                     ) { onKey("BACKSPACE") }
 
                     KeyButton(
-                        primaryText = "SPACE", 
+                        primaryText = "SPACE",
                         modifier = Modifier.weight(2f)
                     ) { onKey("SPACE") }
 
                     KeyButton(
-                        primaryText = "ENT", 
-                        iconRes = R.drawable.ic_enter, 
+                        primaryText = "ENT",
+                        iconRes = R.drawable.ic_enter,
                         modifier = Modifier.weight(1f)
                     ) { onKey("ENTER") }
 
                     KeyButton(
-                        primaryText = "JOY", 
-                        iconRes = R.drawable.ic_joystick, 
-                        modifier = Modifier.weight(1f), 
+                        primaryText = "JOY",
+                        iconRes = R.drawable.ic_joystick,
+                        modifier = Modifier.weight(1f),
                         bgColor = Color(0xFF3584E4)
                     ) { onToggleMode(RightMode.JOYSTICK) }
                 }
@@ -1098,8 +1118,8 @@ fun RightPanel(
                 JoystickController(onDirection = onJoystickDirection)
             }
             KeyButton(
-                primaryText = "KEYBOARD", 
-                modifier = Modifier.fillMaxWidth(), 
+                primaryText = "KEYBOARD",
+                modifier = Modifier.fillMaxWidth(),
                 bgColor = Color(0xFF3584E4),
                 onClick = { onToggleMode(RightMode.TYPING) }
             )
@@ -1196,13 +1216,13 @@ fun KeyButton(
                     "BACKSPACE" -> "⌫"
                     else -> primaryText
                 }
-                
+
                 // Primary key in center (or slightly offset down if secondary key is present)
                 val isFunctionKey = display.length > 1
                 Text(
-                    text = display, 
-                    color = textColor, 
-                    fontSize = if (isFunctionKey) 12.sp else 17.sp, 
+                    text = display,
+                    color = textColor,
+                    fontSize = if (isFunctionKey) 12.sp else 17.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = if (isFunctionKey) FontWeight.SemiBold else FontWeight.Bold,
                     modifier = Modifier
@@ -1218,7 +1238,7 @@ fun KeyButton(
 fun JoystickController(onDirection: (Direction) -> Unit) {
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var isDragging by remember { mutableStateOf(false) }
-    
+
     val density = LocalDensity.current
     val maxRadiusPx = with(density) { 60.dp.toPx() }
     val deadZonePx = with(density) { 20.dp.toPx() }
@@ -1235,7 +1255,7 @@ fun JoystickController(onDirection: (Direction) -> Unit) {
             else -> Direction.UP
         }
     }
-    
+
     Box(
         modifier = Modifier
             .size(160.dp)
@@ -1281,7 +1301,8 @@ fun JoystickController(onDirection: (Direction) -> Unit) {
 
                                 val heldDurationMs = SystemClock.uptimeMillis() - activationTime
                                 // Giảm mượt mà từ 100ms xuống thẳng 20ms trong vòng 1.5 giây
-                                val progress = ((heldDurationMs - activationDelayMs).coerceAtLeast(0L) / 1200f).coerceIn(0f, 1f)
+                                val progress =
+                                    ((heldDurationMs - activationDelayMs).coerceAtLeast(0L) / 1200f).coerceIn(0f, 1f)
                                 val repeatDelayMs = (100L - (progress * 80L)).toLong() // từ 100ms -> 20ms
 
                                 delay(repeatDelayMs)
