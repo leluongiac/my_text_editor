@@ -49,13 +49,13 @@ fun KeyButton(
     val density = LocalDensity.current
 
     // Ngưỡng: Vuốt lên trên ít nhất 20dp và thời gian dưới 250ms
-    val flickDistanceThresholdPx = with(density) { 20.dp.toPx() }
+    val flickDistanceThresholdPx = remember(density) { with(density) { 20.dp.toPx() } }
     val flickTimeThresholdMs = 250L
 
     Box(
         modifier = modifier
             .height(54.dp)
-            .pointerInput(isRepeatable, secondaryText) {
+            .pointerInput(isRepeatable, secondaryText != null) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
@@ -71,9 +71,11 @@ fun KeyButton(
                             delay(350)
                             while (isActive) {
                                 currentOnClick()
-                                delay(50)
+                                delay(45)
                             }
                         }
+                    } else if (secondaryText == null) {
+                        currentOnClick()
                     }
 
                     var endY = startY
@@ -94,11 +96,11 @@ fun KeyButton(
                         isPressed = false
                     }
 
-                    if (wasReleased && !isRepeatable) {
+                    if (wasReleased && !isRepeatable && secondaryText != null) {
                         val deltaY = endY - startY
                         val elapsedTime = SystemClock.uptimeMillis() - startTime
 
-                        if (secondaryText != null && currentOnFlick != null &&
+                        if (currentOnFlick != null &&
                             deltaY < -flickDistanceThresholdPx && elapsedTime < flickTimeThresholdMs
                         ) {
                             view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)

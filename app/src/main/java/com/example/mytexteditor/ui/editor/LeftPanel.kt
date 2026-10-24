@@ -10,6 +10,13 @@ import com.example.mytexteditor.ui.components.*
 import com.example.mytexteditor.R
 import com.example.mytexteditor.ui.theme.EditorColors
 
+private val NUM_ROW_LEFT = listOf("1", "2", "3", "4", "5")
+private val SYM_ROW_2_LEFT = listOf("(", ")", "[", "]", "\"")
+private val SYM_ROW_3_LEFT = listOf("{", "}", "<", ">", "'")
+private val ABC_ROW_1_LEFT = listOf("q" to "1", "w" to "2", "e" to "3", "r" to "4", "t" to "5")
+private val ABC_ROW_2_LEFT = listOf("a" to "~", "s" to "!", "d" to "@", "f" to "#", "g" to "$")
+private val ABC_ROW_3_LEFT = listOf("z" to "^", "x" to "&", "c" to "*", "v" to "/")
+
 @Composable
 fun LeftPanel(
     isShiftMode: Boolean,
@@ -27,19 +34,19 @@ fun LeftPanel(
             // Mode ?123 - Cụm tay trái: Bộ Ngoặc
             // Row 1: 1, 2, 3, 4, 5
             Row(modifier = Modifier.fillMaxWidth()) {
-                listOf("1", "2", "3", "4", "5").forEach { key ->
+                NUM_ROW_LEFT.forEach { key ->
                     KeyButton(primaryText = key, modifier = Modifier.weight(1f)) { onKey(key) }
                 }
             }
             // Row 2: (, ), [, ], "
             Row(modifier = Modifier.fillMaxWidth()) {
-                listOf("(", ")", "[", "]", "\"").forEach { key ->
+                SYM_ROW_2_LEFT.forEach { key ->
                     KeyButton(primaryText = key, modifier = Modifier.weight(1f)) { onKey(key) }
                 }
             }
             // Row 3: {, }, <, >, '
             Row(modifier = Modifier.fillMaxWidth()) {
-                listOf("{", "}", "<", ">", "'").forEach { key ->
+                SYM_ROW_3_LEFT.forEach { key ->
                     KeyButton(primaryText = key, modifier = Modifier.weight(1f)) { onKey(key) }
                 }
             }
@@ -63,8 +70,7 @@ fun LeftPanel(
 
             // Row 1: q(1), w(2), e(3), r(4), t(5)
             Row(modifier = Modifier.fillMaxWidth()) {
-                val row1 = listOf("q" to "1", "w" to "2", "e" to "3", "r" to "4", "t" to "5")
-                row1.forEach { (pri, sec) ->
+                ABC_ROW_1_LEFT.forEach { (pri, sec) ->
                     KeyButton(
                         primaryText = transform(pri),
                         secondaryText = sec,
@@ -76,8 +82,7 @@ fun LeftPanel(
             }
             // Row 2: a(~), s(!), d(@), f(#), g($)
             Row(modifier = Modifier.fillMaxWidth()) {
-                val row2 = listOf("a" to "~", "s" to "!", "d" to "@", "f" to "#", "g" to "$")
-                row2.forEach { (pri, sec) ->
+                ABC_ROW_2_LEFT.forEach { (pri, sec) ->
                     KeyButton(
                         primaryText = transform(pri),
                         secondaryText = sec,
@@ -97,8 +102,7 @@ fun LeftPanel(
                     textColor = if (isShiftMode) Color.Black else Color.White
                 ) { onKey("SHIFT") }
 
-                val row3 = listOf("z" to "^", "x" to "&", "c" to "*", "v" to "/")
-                row3.forEach { (pri, sec) ->
+                ABC_ROW_3_LEFT.forEach { (pri, sec) ->
                     KeyButton(
                         primaryText = transform(pri),
                         secondaryText = sec,

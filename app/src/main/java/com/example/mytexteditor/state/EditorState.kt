@@ -17,7 +17,7 @@ import com.example.mytexteditor.model.RightMode
 
 @Stable
 class EditorState {
-    var layoutResult by mutableStateOf<TextLayoutResult?>(null)
+    var layoutResult: TextLayoutResult? = null
 
     var textFieldValue by mutableStateOf(
         TextFieldValue(

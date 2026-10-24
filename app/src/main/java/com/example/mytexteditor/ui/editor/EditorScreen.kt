@@ -10,8 +10,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
+import com.example.mytexteditor.model.Direction
+import com.example.mytexteditor.model.RightMode
 import com.example.mytexteditor.state.*
-import com.example.mytexteditor.model.*
 import com.example.mytexteditor.ui.components.*
 import com.example.mytexteditor.ui.theme.EditorColors
 
@@ -21,6 +22,22 @@ fun EditorScreen() {
     val context = LocalContext.current
     val view = LocalView.current
     val haptic = LocalHapticFeedback.current
+
+    val onKeyAction = remember(state, context, view) {
+        { key: String ->
+            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            state.onKey(key, context)
+        }
+    }
+    val onJoystickAction = remember(state, haptic) {
+        { direction: Direction -> state.onJoystickDirection(direction, haptic) }
+    }
+    val onToggleModeAction = remember(state, haptic) {
+        { mode: RightMode ->
+            state.rightMode = mode
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+    }
 
     Row(
         modifier = Modifier
@@ -34,10 +51,7 @@ fun EditorScreen() {
             isShiftMode = state.isShiftMode,
             isSymbolMode = state.isSymbolMode,
             isCtrlPressed = state.isCtrlPressed,
-            onKey = {
-                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                state.onKey(it, context)
-            },
+            onKey = onKeyAction,
             modifier = Modifier
                 .weight(0.27f)
                 .fillMaxHeight()
@@ -56,15 +70,9 @@ fun EditorScreen() {
             rightMode = state.rightMode,
             isShiftMode = state.isShiftMode,
             isSymbolMode = state.isSymbolMode,
-            onKey = {
-                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                state.onKey(it, context)
-            },
-            onJoystickDirection = { state.onJoystickDirection(it, haptic) },
-            onToggleMode = { mode ->
-                state.rightMode = mode
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            },
+            onKey = onKeyAction,
+            onJoystickDirection = onJoystickAction,
+            onToggleMode = onToggleModeAction,
             modifier = Modifier
                 .weight(0.27f)
                 .fillMaxHeight()

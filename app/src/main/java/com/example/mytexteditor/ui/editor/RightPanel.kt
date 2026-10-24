@@ -12,6 +12,13 @@ import com.example.mytexteditor.ui.components.*
 import com.example.mytexteditor.R
 import com.example.mytexteditor.ui.theme.EditorColors
 
+private val NUM_ROW_RIGHT = listOf("6", "7", "8", "9", "0")
+private val SYM_ROW_2_RIGHT = listOf("=", "+", "-", "*", "/")
+private val SYM_ROW_3_RIGHT = listOf("&", "|", "!", "%", "_")
+private val ABC_ROW_1_RIGHT = listOf("y" to "6", "u" to "7", "i" to "8", "o" to "9", "p" to "0")
+private val ABC_ROW_2_RIGHT = listOf("h" to "_", "j" to "+", "k" to "-", "l" to "=", ";" to ":")
+private val ABC_ROW_3_RIGHT = listOf("b" to "\\", "n" to "<", "m" to ">", "," to "?", "." to "\"")
+
 @Composable
 fun RightPanel(
     rightMode: RightMode,
@@ -32,19 +39,19 @@ fun RightPanel(
                 // Mode ?123 - Cụm tay phải: Toán tử
                 // Row 1: 6, 7, 8, 9, 0
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    listOf("6", "7", "8", "9", "0").forEach { key ->
+                    NUM_ROW_RIGHT.forEach { key ->
                         KeyButton(primaryText = key, modifier = Modifier.weight(1f)) { onKey(key) }
                     }
                 }
                 // Row 2: =, +, -, *, /
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    listOf("=", "+", "-", "*", "/").forEach { key ->
+                    SYM_ROW_2_RIGHT.forEach { key ->
                         KeyButton(primaryText = key, modifier = Modifier.weight(1f)) { onKey(key) }
                     }
                 }
                 // Row 3: &, |, !, %, _
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    listOf("&", "|", "!", "%", "_").forEach { key ->
+                    SYM_ROW_3_RIGHT.forEach { key ->
                         KeyButton(primaryText = key, modifier = Modifier.weight(1f)) { onKey(key) }
                     }
                 }
@@ -80,8 +87,7 @@ fun RightPanel(
 
                 // Row 1: y(6), u(7), i(8), o(9), p(0)
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    val row1 = listOf("y" to "6", "u" to "7", "i" to "8", "o" to "9", "p" to "0")
-                    row1.forEach { (pri, sec) ->
+                    ABC_ROW_1_RIGHT.forEach { (pri, sec) ->
                         KeyButton(
                             primaryText = transform(pri),
                             secondaryText = sec,
@@ -93,8 +99,7 @@ fun RightPanel(
                 }
                 // Row 2: h(_), j(+), k(-), l(=), ;(:)
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    val row2 = listOf("h" to "_", "j" to "+", "k" to "-", "l" to "=", ";" to ":")
-                    row2.forEach { (pri, sec) ->
+                    ABC_ROW_2_RIGHT.forEach { (pri, sec) ->
                         KeyButton(
                             primaryText = if (pri.length == 1 && pri.first().isLetter()) transform(pri) else pri,
                             secondaryText = sec,
@@ -106,8 +111,7 @@ fun RightPanel(
                 }
                 // Row 3: b(\), n(<), m(>), ,(?), .(")
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    val row3 = listOf("b" to "\\", "n" to "<", "m" to ">", "," to "?", "." to "\"")
-                    row3.forEach { (pri, sec) ->
+                    ABC_ROW_3_RIGHT.forEach { (pri, sec) ->
                         KeyButton(
                             primaryText = if (pri.length == 1 && pri.first().isLetter()) transform(pri) else pri,
                             secondaryText = sec,
