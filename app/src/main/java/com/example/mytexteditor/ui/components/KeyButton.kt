@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -77,17 +76,28 @@ fun KeyButton(
                         }
                     }
 
-                    // Theo dõi chuyển động ngón tay đến khi nhấc lên
-                    var upEvent = waitForUpOrCancellation()
+                    var endY = startY
+                    var wasReleased = false
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            change.consume()
+                            if (!change.pressed) {
+                                endY = change.position.y
+                                wasReleased = true
+                                break
+                            }
+                        }
+                    } finally {
+                        repeatJob?.cancel()
+                        isPressed = false
+                    }
 
-                    repeatJob?.cancel()
-                    isPressed = false
-
-                    if (upEvent != null && !isRepeatable) {
-                        val deltaY = upEvent.position.y - startY
+                    if (wasReleased && !isRepeatable) {
+                        val deltaY = endY - startY
                         val elapsedTime = SystemClock.uptimeMillis() - startTime
 
-                        // Kiểm tra điều kiện Flick Up: deltaY < 0 (hướng lên trên)
                         if (secondaryText != null && currentOnFlick != null &&
                             deltaY < -flickDistanceThresholdPx && elapsedTime < flickTimeThresholdMs
                         ) {
