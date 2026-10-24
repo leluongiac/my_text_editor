@@ -1,5 +1,7 @@
 package com.example.mytexteditor.ui.components
 
+import android.os.SystemClock
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -25,7 +29,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import com.example.mytexteditor.ui.theme.EditorColors
 
 @Composable
 fun KeyButton(
@@ -33,51 +36,74 @@ fun KeyButton(
     secondaryText: String? = null,
     iconRes: Int? = null,
     modifier: Modifier = Modifier,
-    bgColor: Color = EditorColors.keySurface,
+    bgColor: Color = Color(0xFF323232),
     textColor: Color = Color.White,
     isRepeatable: Boolean = false,
+    onFlick: (() -> Unit)? = null, // Callback khi gạt lên
     onClick: () -> Unit
 ) {
     var isPressed by remember { mutableStateOf(false) }
     val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnFlick by rememberUpdatedState(onFlick)
     val scope = rememberCoroutineScope()
+    val view = LocalView.current
+    val density = LocalDensity.current
 
-    // Outer Box: The Extended Touch Target (42dp x 54dp effective touch bounds)
-    // 3dp horizontal padding + 2dp vertical padding creates exact 6dp gap between visible buttons!
+    // Ngưỡng: Vuốt lên trên ít nhất 20dp và thời gian dưới 250ms
+    val flickDistanceThresholdPx = with(density) { 20.dp.toPx() }
+    val flickTimeThresholdMs = 250L
+
     Box(
         modifier = modifier
             .height(54.dp)
-            .pointerInput(isRepeatable) {
+            .pointerInput(isRepeatable, secondaryText) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     isPressed = true
-                    currentOnClick()
+
+                    val startY = down.position.y
+                    val startTime = SystemClock.uptimeMillis()
 
                     var repeatJob: Job? = null
                     if (isRepeatable) {
+                        currentOnClick()
                         repeatJob = scope.launch {
-                            delay(350) // Initial hold threshold
+                            delay(350)
                             while (isActive) {
                                 currentOnClick()
-                                delay(50) // Spam tick every 50ms
+                                delay(50)
                             }
                         }
                     }
-                    try {
-                        waitForUpOrCancellation()
-                    } finally {
-                        repeatJob?.cancel()
-                        isPressed = false
+
+                    // Theo dõi chuyển động ngón tay đến khi nhấc lên
+                    var upEvent = waitForUpOrCancellation()
+
+                    repeatJob?.cancel()
+                    isPressed = false
+
+                    if (upEvent != null && !isRepeatable) {
+                        val deltaY = upEvent.position.y - startY
+                        val elapsedTime = SystemClock.uptimeMillis() - startTime
+
+                        // Kiểm tra điều kiện Flick Up: deltaY < 0 (hướng lên trên)
+                        if (secondaryText != null && currentOnFlick != null &&
+                            deltaY < -flickDistanceThresholdPx && elapsedTime < flickTimeThresholdMs
+                        ) {
+                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                            currentOnFlick?.invoke()
+                        } else {
+                            currentOnClick()
+                        }
                     }
                 }
             }
             .padding(horizontal = 1.5.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Inner Box: Visual Key (wider keys, tight 3dp gap matching Gboard layout)
         val buttonBg = if (isPressed) {
-            if (bgColor == EditorColors.keySurface) Color(0xFF484848) else bgColor.copy(alpha = 0.7f)
+            if (bgColor == Color(0xFF323232)) Color(0xFF484848) else bgColor.copy(alpha = 0.7f)
         } else {
             bgColor
         }
@@ -87,7 +113,7 @@ fun KeyButton(
                 .fillMaxSize()
                 .clip(RoundedCornerShape(6.dp))
                 .background(buttonBg)
-                .border(BorderStroke(1.dp, EditorColors.border), RoundedCornerShape(6.dp)),
+                .border(BorderStroke(1.dp, Color(0xFF383838)), RoundedCornerShape(6.dp)),
             contentAlignment = Alignment.Center
         ) {
             if (iconRes != null) {
@@ -98,7 +124,6 @@ fun KeyButton(
                     modifier = Modifier.size(22.dp)
                 )
             } else {
-                // Secondary key in top right corner (Muted font 11sp, color #8A8A8E)
                 if (!secondaryText.isNullOrEmpty()) {
                     Text(
                         text = secondaryText,
@@ -112,12 +137,7 @@ fun KeyButton(
                     )
                 }
 
-                val display = when (primaryText) {
-                    "BACKSPACE" -> "⌫"
-                    else -> primaryText
-                }
-
-                // Primary key in center (or slightly offset down if secondary key is present)
+                val display = if (primaryText == "BACKSPACE") "⌫" else primaryText
                 val isFunctionKey = display.length > 1
                 Text(
                     text = display,

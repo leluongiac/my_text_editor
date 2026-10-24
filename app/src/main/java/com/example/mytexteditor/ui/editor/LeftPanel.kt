@@ -68,8 +68,10 @@ fun LeftPanel(
                     KeyButton(
                         primaryText = transform(pri),
                         secondaryText = sec,
-                        modifier = Modifier.weight(1f)
-                    ) { onKey(transform(pri)) }
+                        modifier = Modifier.weight(1f),
+                        onFlick = { onKey(sec) },
+                        onClick = { onKey(transform(pri)) }
+                    )
                 }
             }
             // Row 2: a(~), s(!), d(@), f(#), g($)
@@ -79,8 +81,10 @@ fun LeftPanel(
                     KeyButton(
                         primaryText = transform(pri),
                         secondaryText = sec,
-                        modifier = Modifier.weight(1f)
-                    ) { onKey(transform(pri)) }
+                        modifier = Modifier.weight(1f),
+                        onFlick = { onKey(sec) },
+                        onClick = { onKey(transform(pri)) }
+                    )
                 }
             }
             // Row 3: SHIFT/CAPS, z(^), x(&), c(*), v(/)
@@ -98,8 +102,10 @@ fun LeftPanel(
                     KeyButton(
                         primaryText = transform(pri),
                         secondaryText = sec,
-                        modifier = Modifier.weight(1f)
-                    ) { onKey(transform(pri)) }
+                        modifier = Modifier.weight(1f),
+                        onFlick = { onKey(sec) },
+                        onClick = { onKey(transform(pri)) }
+                    )
                 }
             }
             // Row 4: CTRL, TAB, ?123

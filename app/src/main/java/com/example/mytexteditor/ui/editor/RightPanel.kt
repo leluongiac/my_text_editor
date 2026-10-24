@@ -85,8 +85,10 @@ fun RightPanel(
                         KeyButton(
                             primaryText = transform(pri),
                             secondaryText = sec,
-                            modifier = Modifier.weight(1f)
-                        ) { onKey(transform(pri)) }
+                            modifier = Modifier.weight(1f),
+                            onFlick = { onKey(sec) },
+                            onClick = { onKey(transform(pri)) }
+                        )
                     }
                 }
                 // Row 2: h(_), j(+), k(-), l(=), ;(:)
@@ -96,8 +98,10 @@ fun RightPanel(
                         KeyButton(
                             primaryText = if (pri.length == 1 && pri.first().isLetter()) transform(pri) else pri,
                             secondaryText = sec,
-                            modifier = Modifier.weight(1f)
-                        ) { onKey(pri) }
+                            modifier = Modifier.weight(1f),
+                            onFlick = { onKey(sec) },
+                            onClick = { onKey(pri) }
+                        )
                     }
                 }
                 // Row 3: b(\), n(<), m(>), ,(?), .(")
@@ -107,8 +111,10 @@ fun RightPanel(
                         KeyButton(
                             primaryText = if (pri.length == 1 && pri.first().isLetter()) transform(pri) else pri,
                             secondaryText = sec,
-                            modifier = Modifier.weight(1f)
-                        ) { onKey(pri) }
+                            modifier = Modifier.weight(1f),
+                            onFlick = { onKey(sec) },
+                            onClick = { onKey(pri) }
+                        )
                     }
                 }
                 // Row 4: ⌫, SPACE (double width), ENT, JOY
