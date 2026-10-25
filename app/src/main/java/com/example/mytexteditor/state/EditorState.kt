@@ -14,33 +14,52 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.input.TextFieldValue
 import com.example.mytexteditor.model.Direction
 import com.example.mytexteditor.model.RightMode
+import com.example.mytexteditor.syntax.AsyncSyntaxHighlighter
 
 @Stable
 class EditorState {
     var layoutResult: TextLayoutResult? = null
 
+    val syntaxHighlighter = AsyncSyntaxHighlighter()
+
     var textFieldValue by mutableStateOf(
         TextFieldValue(
             text = """
-                fun main() {
-                    println("Hello, Experimental Editor!")
-                    
-                    // Welcome to the Joystick Keyboard MVP
-                    val width = 1920
-                    val height = 1080
-                    
-                    for (i in 1..5) {
-                        println("Processing row " + i)
-                    }
+                #include <iostream>
+                #include <vector>
+                #include <string>
 
+                using namespace std;
+
+                // Welcome to Tree-sitter C++ Editor!
+                int main() {
+                    vector<string> items = {"Hello", "from", "Tree-sitter", "C++!"};
+
+                    for (const auto& item : items) {
+                        cout << item << " ";
+                    }
+                    cout << endl;
+                    return 0;
                 }
             """.trimIndent(),
-            selection = TextRange(13) // Initial cursor position
+            selection = TextRange(0)
         )
     )
     var currentUri by mutableStateOf<Uri?>(null)
-    var fileName by mutableStateOf("main.kt")
+    var fileName by mutableStateOf("main.cpp")
     var isModified by mutableStateOf(false)
+
+    init {
+        syntaxHighlighter.updateText(textFieldValue.text)
+    }
+
+    fun updateTextFieldValue(newValue: TextFieldValue, markModified: Boolean = true) {
+        if (newValue.text != textFieldValue.text) {
+            if (markModified) isModified = true
+            syntaxHighlighter.updateText(newValue.text)
+        }
+        textFieldValue = newValue
+    }
 
     var isSelectMode by mutableStateOf(false)
     var rightMode by mutableStateOf(RightMode.TYPING)
@@ -100,8 +119,7 @@ class EditorState {
                     // Ctrl + Z: Undo
                     if (undoStack.isNotEmpty()) {
                         redoStack.addLast(textFieldValue)
-                        textFieldValue = undoStack.removeLast()
-                        isModified = true
+                        updateTextFieldValue(undoStack.removeLast())
                         Toast.makeText(context, "Hoàn tác (Undo)", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, "Không còn thao tác để hoàn tác", Toast.LENGTH_SHORT).show()
@@ -114,8 +132,7 @@ class EditorState {
                     // Ctrl + U: Redo
                     if (redoStack.isNotEmpty()) {
                         undoStack.addLast(textFieldValue)
-                        textFieldValue = redoStack.removeLast()
-                        isModified = true
+                        updateTextFieldValue(redoStack.removeLast())
                         Toast.makeText(context, "Làm lại (Redo)", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, "Không còn thao tác để làm lại", Toast.LENGTH_SHORT).show()
@@ -158,8 +175,7 @@ class EditorState {
                             val min = selection.min
                             val max = selection.max
                             val newText = StringBuilder(text).replace(min, max, pasteText).toString()
-                            textFieldValue = TextFieldValue(newText, TextRange(min + pasteText.length))
-                            isModified = true
+                            updateTextFieldValue(TextFieldValue(newText, TextRange(min + pasteText.length)))
                             Toast.makeText(context, "Đã dán (Paste)", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -179,8 +195,7 @@ class EditorState {
                         clipboard.setPrimaryClip(ClipData.newPlainText("text", textToCut))
                         pushUndoSnapshot(textFieldValue)
                         val newText = StringBuilder(text).delete(min, max).toString()
-                        textFieldValue = TextFieldValue(newText, TextRange(min))
-                        isModified = true
+                        updateTextFieldValue(TextFieldValue(newText, TextRange(min)))
                         Toast.makeText(context, "Đã cắt (Cut)", Toast.LENGTH_SHORT).show()
                     } else {
                         val startOfLine = text.lastIndexOf('\n', (selection.start - 1).coerceAtLeast(0))
@@ -192,9 +207,9 @@ class EditorState {
                             clipboard.setPrimaryClip(ClipData.newPlainText("text", textToCut))
                             pushUndoSnapshot(textFieldValue)
                             val newText = StringBuilder(text).delete(startOfLine, endOfLine).toString()
-                            textFieldValue =
+                            updateTextFieldValue(
                                 TextFieldValue(newText, TextRange(startOfLine.coerceAtMost(newText.length)))
-                            isModified = true
+                            )
                             Toast.makeText(context, "Đã cắt dòng (Cut)", Toast.LENGTH_SHORT).show()
                         }
                     }
@@ -222,15 +237,13 @@ class EditorState {
                 if (selection.start > 0) {
                     val start = selection.start
                     val newText = StringBuilder(text).delete(start - 1, start).toString()
-                    textFieldValue = TextFieldValue(newText, TextRange(start - 1))
-                    isModified = true
+                    updateTextFieldValue(TextFieldValue(newText, TextRange(start - 1)))
                 }
             } else {
                 val min = selection.min
                 val max = selection.max
                 val newText = StringBuilder(text).delete(min, max).toString()
-                textFieldValue = TextFieldValue(newText, TextRange(min))
-                isModified = true
+                updateTextFieldValue(TextFieldValue(newText, TextRange(min)))
             }
         } else {
             val insertText = when (key) {
@@ -248,8 +261,7 @@ class EditorState {
             val min = selection.min
             val max = selection.max
             val newText = StringBuilder(text).replace(min, max, insertText).toString()
-            textFieldValue = TextFieldValue(newText, TextRange(min + insertText.length))
-            isModified = true
+            updateTextFieldValue(TextFieldValue(newText, TextRange(min + insertText.length)))
         }
     }
 

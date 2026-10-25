@@ -35,6 +35,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.example.mytexteditor.data.FileUtils
 import com.example.mytexteditor.state.EditorState
+import com.example.mytexteditor.syntax.TreeSitterVisualTransformation
 import com.example.mytexteditor.ui.components.ChevronDownIcon
 import com.example.mytexteditor.ui.components.ChevronUpIcon
 import com.example.mytexteditor.ui.theme.EditorColors
@@ -48,6 +49,10 @@ fun CenterEditorPanel(
     var isHeaderExpanded by remember { mutableStateOf(false) }
     var showPopover by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    val visualTransformation = remember(state.syntaxHighlighter.tokens) {
+        TreeSitterVisualTransformation(state.syntaxHighlighter.tokens)
+    }
 
     val fullFileName = state.fileName
     val fullPath = remember(state.currentUri, state.fileName) {
@@ -79,11 +84,9 @@ fun CenterEditorPanel(
             BasicTextField(
                 value = state.textFieldValue,
                 onValueChange = { newValue ->
-                    if (newValue.text != state.textFieldValue.text) {
-                        state.isModified = true
-                    }
-                    state.textFieldValue = newValue
+                    state.updateTextFieldValue(newValue)
                 },
+                visualTransformation = visualTransformation,
                 onTextLayout = { state.layoutResult = it },
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     imeAction = androidx.compose.ui.text.input.ImeAction.None

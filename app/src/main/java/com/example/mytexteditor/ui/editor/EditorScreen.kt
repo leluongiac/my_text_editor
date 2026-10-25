@@ -56,7 +56,7 @@ fun EditorScreen() {
                 val name = FileUtils.getFileName(context, uri) ?: "untitled.kt"
                 state.currentUri = uri
                 state.fileName = name
-                state.textFieldValue = TextFieldValue(content, TextRange(0))
+                state.updateTextFieldValue(TextFieldValue(content, TextRange(0)), markModified = false)
                 state.clearHistory()
                 state.isModified = false
                 Toast.makeText(context, "Đã mở $name", Toast.LENGTH_SHORT).show()
@@ -77,7 +77,7 @@ fun EditorScreen() {
                     pendingNewFileAfterSave = false
                     state.currentUri = null
                     state.fileName = "untitled.kt"
-                    state.textFieldValue = TextFieldValue("", TextRange(0))
+                    state.updateTextFieldValue(TextFieldValue("", TextRange(0)), markModified = false)
                     state.clearHistory()
                     state.isModified = false
                     Toast.makeText(context, "Đã lưu $name & tạo file mới", Toast.LENGTH_SHORT).show()
@@ -120,7 +120,7 @@ fun EditorScreen() {
         } else {
             state.currentUri = null
             state.fileName = "untitled.kt"
-            state.textFieldValue = TextFieldValue("", TextRange(0))
+            state.updateTextFieldValue(TextFieldValue("", TextRange(0)), markModified = false)
             state.clearHistory()
             state.isModified = false
             Toast.makeText(context, "Đã tạo file mới", Toast.LENGTH_SHORT).show()
@@ -180,7 +180,7 @@ fun EditorScreen() {
                                 showNewFileDialog = false
                                 state.currentUri = null
                                 state.fileName = "untitled.kt"
-                                state.textFieldValue = TextFieldValue("", TextRange(0))
+                                state.updateTextFieldValue(TextFieldValue("", TextRange(0)), markModified = false)
                                 state.clearHistory()
                                 state.isModified = false
                                 Toast.makeText(context, "Đã tạo file mới", Toast.LENGTH_SHORT).show()
@@ -197,7 +197,7 @@ fun EditorScreen() {
                                     if (success) {
                                         state.currentUri = null
                                         state.fileName = "untitled.kt"
-                                        state.textFieldValue = TextFieldValue("", TextRange(0))
+                                        state.updateTextFieldValue(TextFieldValue("", TextRange(0)), markModified = false)
                                         state.clearHistory()
                                         state.isModified = false
                                         Toast.makeText(context, "Đã lưu & tạo file mới", Toast.LENGTH_SHORT).show()
