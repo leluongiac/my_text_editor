@@ -1,6 +1,7 @@
 #include "cpp_highlighter.hpp"
 #include <algorithm>
 #include <cstring>
+#include <string_view>
 #include <android/log.h>
 
 #define LOG_TAG "CppHighlighter"
@@ -8,95 +9,70 @@
 
 extern "C" const TSLanguage *tree_sitter_cpp(void);
 
-// Query chuẩn xác cho C++
+// Tree-sitter Query chuẩn Catppuccin Mocha C++
+// Query chuẩn an toàn 100% cho Tree-sitter C++ (Catppuccin Mocha)
 static const char* CPP_HIGHLIGHT_QUERY =
-    "\"break\" @keyword\n"
-    "\"case\" @keyword\n"
-    "\"const\" @keyword\n"
-    "\"continue\" @keyword\n"
-    "\"default\" @keyword\n"
-    "\"do\" @keyword\n"
-    "\"else\" @keyword\n"
-    "\"enum\" @keyword\n"
-    "\"extern\" @keyword\n"
-    "\"for\" @keyword\n"
-    "\"if\" @keyword\n"
-    "\"inline\" @keyword\n"
-    "\"return\" @keyword\n"
-    "\"sizeof\" @keyword\n"
-    "\"static\" @keyword\n"
-    "\"struct\" @keyword\n"
-    "\"switch\" @keyword\n"
-    "\"typedef\" @keyword\n"
-    "\"union\" @keyword\n"
-    "\"volatile\" @keyword\n"
-    "\"while\" @keyword\n"
-    "(preproc_directive) @keyword\n"
+    // F. Preprocessor (Teal)
+    "\"#include\" @preproc\n"
+    "\"#define\" @preproc\n"
+    "\"#if\" @preproc\n"
+    "\"#ifdef\" @preproc\n"
+    "\"#ifndef\" @preproc\n"
+    "\"#endif\" @preproc\n"
+    "\"#else\" @preproc\n"
+    "\"#elif\" @preproc\n"
+    "(preproc_directive) @preproc\n"
+    "(system_lib_string) @string\n"
+
+    // A. Control Flow & Keywords (Mauve)
     "[\n"
-    " \"catch\"\n"
-    " \"class\"\n"
-    " \"co_await\"\n"
-    " \"co_return\"\n"
-    " \"co_yield\"\n"
-    " \"constexpr\"\n"
-    " \"delete\"\n"
-    " \"explicit\"\n"
-    " \"final\"\n"
-    " \"friend\"\n"
-    " \"mutable\"\n"
-    " \"namespace\"\n"
-    " \"noexcept\"\n"
-    " \"new\"\n"
-    " \"override\"\n"
-    " \"private\"\n"
-    " \"protected\"\n"
-    " \"public\"\n"
-    " \"template\"\n"
-    " \"throw\"\n"
-    " \"try\"\n"
-    " \"typename\"\n"
-    " \"using\"\n"
-    " \"virtual\"\n"
-    " \"nullptr\"\n"
-    "] @keyword\n"
-    "(true) @keyword\n"
-    "(false) @keyword\n"
-    "(this) @keyword\n"
-    "((identifier) @type (#match? @type \"^(std|string|vector|map|set|pair|tuple|unique_ptr|shared_ptr)$\"))\n"
-    "((identifier) @function (#match? @function \"^(cout|cin|cerr|endl)$\"))\n"
-    "(primitive_type) @keyword\n"
+    " \"if\" \"else\" \"for\" \"while\" \"do\" \"switch\" \"case\" \"default\"\n"
+    " \"break\" \"continue\" \"return\" \"co_return\" \"co_yield\"\n"
+    " \"try\" \"catch\" \"throw\" \"noexcept\"\n"
+    " \"new\" \"delete\" \"sizeof\"\n"
+    " \"class\" \"struct\" \"union\" \"enum\" \"typename\" \"template\"\n"
+    " \"using\" \"namespace\" \"typedef\"\n"
+    " \"static\" \"extern\" \"mutable\"\n"
+    " \"public\" \"protected\" \"private\"\n"
+    " \"virtual\" \"nullptr\"\n"
+    "] @keyword.control\n"
+
+    // A. Const & Immutability (Peach)
+    "[\n"
+    " \"const\" \"constexpr\" \"volatile\" \"inline\"\n"
+    "] @keyword.const\n"
+
+    // C. Builtin objects (Sapphire)
+    "((identifier) @builtin (#match? @builtin \"^(cout|cin|cerr|endl)$\"))\n"
+
+    // B. Types & Namespace (Yellow & Lavender)
+    "(primitive_type) @type\n"
     "(type_identifier) @type\n"
     "(sized_type_specifier) @type\n"
-    "(namespace_identifier) @type\n"
     "(auto) @type\n"
-    "(string_literal) @string\n"
-    "(system_lib_string) @string\n"
-    "(raw_string_literal) @string\n"
-    "(char_literal) @string\n"
-    "(comment) @comment\n"
-    "(number_literal) @number\n"
-    "[\n"
-    " \"<<\"\n"
-    " \">>\"\n"
-    " \"<=\"\n"
-    " \">=\"\n"
-    " \"==\"\n"
-    " \"!=\"\n"
-    " \"&&\"\n"
-    " \"||\"\n"
-    " \"->\"\n"
-    " \"::\"\n"
-    " \"+\"\n"
-    " \"-\"\n"
-    " \"*\"\n"
-    " \"/\"\n"
-    " \"%\"\n"
-    " \"=\"\n"
-    "] @operator\n"
+    "(namespace_identifier) @namespace\n"
+    "((identifier) @type (#match? @type \"^(std|string|vector|map|set|pair|tuple)$\"))\n"
+
+    // C. Functions (Blue)
     "(call_expression function: (identifier) @function)\n"
-    "(call_expression function: (field_expression field: (field_identifier) @function))\n"
-    "(call_expression function: (qualified_identifier name: (identifier) @function))\n"
-    "(function_declarator declarator: (identifier) @function)\n";
+    "(function_declarator declarator: (identifier) @function)\n"
+
+    // D & E. Literals (Peach, Red, Green)
+    "(this) @this\n"
+    "(number_literal) @number\n"
+    "(true) @number\n"
+    "(false) @number\n"
+    "(string_literal) @string\n"
+    "(char_literal) @string\n"
+
+    // G. Operators (Sky)
+    "[\n"
+    " \"<<\" \">>\" \"<=\" \">=\" \"==\" \"!=\" \"&&\" \"||\" \"->\" \"::\"\n"
+    " \"+\" \"-\" \"*\" \"/\" \"%\" \"=\" \"+=\" \"-=\"\n"
+    "] @operator\n"
+
+    // H. Comments (Overlay0)
+    "(comment) @comment\n";
 
 CppHighlighter::CppHighlighter() : parser(nullptr), query(nullptr) {
     parser = ts_parser_new();
@@ -116,12 +92,21 @@ CppHighlighter::~CppHighlighter() {
 }
 
 static inline int32_t capture_to_type(const char* name, uint32_t len) {
-    if (strncmp(name, "keyword", len) == 0) return 1;
-    if (strncmp(name, "type", len) == 0) return 2;
-    if (strncmp(name, "string", len) == 0) return 3;
-    if (strncmp(name, "comment", len) == 0) return 4;
-    if (strncmp(name, "function", len) == 0 || strncmp(name, "operator", len) == 0) return 5;
-    if (strncmp(name, "number", len) == 0) return 6;
+    std::string_view s(name, len);
+    if (s == "keyword.control") return 1;
+    if (s == "keyword.const")   return 2;
+    if (s == "keyword.cast")    return 3;
+    if (s == "type")            return 4;
+    if (s == "namespace")       return 5;
+    if (s == "function")        return 6;
+    if (s == "builtin")         return 7;
+    if (s == "this")            return 8;
+    if (s == "number")          return 9;
+    if (s == "string")          return 10;
+    if (s == "preproc")         return 11;
+    if (s == "operator")        return 12;
+    if (s == "punctuation")     return 13;
+    if (s == "comment")         return 14;
     return 0;
 }
 
@@ -131,10 +116,8 @@ std::vector<int32_t> CppHighlighter::highlight(const char* utf8_text, size_t len
         return tokens;
     }
 
-    // Khóa Mutex để đảm bảo an toàn tuyệt đối khi Coroutine gọi từ nhiều luồng
     std::lock_guard<std::mutex> lock(mtx);
 
-    // 1. Chuyển đổi UTF-8 byte index sang UTF-16 code unit index cho Kotlin
     bool has_non_ascii = false;
     for (size_t i = 0; i < length; ++i) {
         if ((unsigned char)utf8_text[i] >= 0x80) {
@@ -168,7 +151,7 @@ std::vector<int32_t> CppHighlighter::highlight(const char* utf8_text, size_t len
                 if (b + 2 <= length) byte_to_char[b + 2] = c;
                 if (b + 3 <= length) byte_to_char[b + 3] = c;
                 b += 4;
-                c += 2; // UTF-16 surrogate pair
+                c += 2;
             } else {
                 b += 1;
                 c += 1;
@@ -177,15 +160,12 @@ std::vector<int32_t> CppHighlighter::highlight(const char* utf8_text, size_t len
         byte_to_char[length] = c;
     }
 
-    // 2. Luôn parse mới 100% (truyền nullptr thay vì old_tree) để không bao giờ bị lệch vị trí
     TSTree* tree = ts_parser_parse_string(parser, nullptr, utf8_text, length);
     if (!tree) {
         return tokens;
     }
 
     TSNode root = ts_tree_root_node(tree);
-
-    // 3. Thực thi Query
     TSQueryCursor* cursor = ts_query_cursor_new();
     ts_query_cursor_exec(cursor, query, root);
 
@@ -216,6 +196,6 @@ std::vector<int32_t> CppHighlighter::highlight(const char* utf8_text, size_t len
     }
 
     ts_query_cursor_delete(cursor);
-    ts_tree_delete(tree); // Xóa giải phóng RAM ngay sau khi parse xong
+    ts_tree_delete(tree);
     return tokens;
 }

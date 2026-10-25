@@ -27,15 +27,22 @@ class TreeSitterVisualTransformation(
             val end = tokens[idx + 1]
             val type = tokens[idx + 2]
 
-            // Bảo vệ an toàn index không bao giờ văng Exception
             if (start in 0 until textLength && end in (start + 1)..textLength) {
                 val color = when (type) {
-                    1 -> colorScheme.keywordColor
-                    2 -> colorScheme.typeColor
-                    3 -> colorScheme.stringColor
-                    4 -> colorScheme.commentColor
-                    5 -> colorScheme.functionColor
-                    6 -> colorScheme.numberColor
+                    1 -> colorScheme.mauve       // Keyword Control
+                    2 -> colorScheme.peach       // Keyword Const
+                    3 -> colorScheme.sapphire    // Keyword Cast
+                    4 -> colorScheme.yellow      // Type
+                    5 -> colorScheme.lavender    // Namespace
+                    6 -> colorScheme.blue        // Function
+                    7 -> colorScheme.sapphire    // Builtin (cout, endl)
+                    8 -> colorScheme.red         // this
+                    9 -> colorScheme.peach       // Number / Boolean / Nullptr
+                    10 -> colorScheme.green      // String & Header paths
+                    11 -> colorScheme.teal       // Preprocessor (#include)
+                    12 -> colorScheme.sky        // Operator (<<, +...)
+                    13 -> colorScheme.overlay2   // Punctuation
+                    14 -> colorScheme.overlay0   // Comment
                     else -> null
                 }
                 if (color != null) {
