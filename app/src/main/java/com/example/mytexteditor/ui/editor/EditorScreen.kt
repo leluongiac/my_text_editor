@@ -72,7 +72,7 @@ fun EditorScreen() {
     }
 
     val createDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("text/plain")
+        contract = ActivityResultContracts.CreateDocument("*/*")
     ) { uri: Uri? ->
         if (uri != null) {
             val success = FileUtils.saveToFile(context, uri, state.textFieldValue.text)
