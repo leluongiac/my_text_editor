@@ -2,6 +2,9 @@
 .gradle/
 build/
 .kotlin/
+.vscode/
+.idea/
+.github/
 
 # Local configuration file (sdk path, etc)
 local.properties

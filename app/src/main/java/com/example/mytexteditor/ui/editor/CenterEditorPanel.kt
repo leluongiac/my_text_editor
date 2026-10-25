@@ -15,20 +15,28 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalTextInputService
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
@@ -40,6 +48,14 @@ import com.example.mytexteditor.ui.components.ChevronDownIcon
 import com.example.mytexteditor.ui.components.ChevronUpIcon
 import com.example.mytexteditor.ui.theme.EditorColors
 
+private val EditorLineHeight = 24.sp
+
+// Đảm bảo chữ số và text code căn thẳng hàng tâm với nhau
+private val GnomeLineHeightStyle = LineHeightStyle(
+    alignment = LineHeightStyle.Alignment.Center,
+    trim = LineHeightStyle.Trim.None
+)
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun CenterEditorPanel(
@@ -50,10 +66,10 @@ fun CenterEditorPanel(
     var showPopover by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    // 1. Đọc giá trị mảng tokens trực tiếp để Compose biết đường vẽ lại
+    // 1. Đọc giá trị mảng tokens trực tiếp để Compose vẽ lại syntax
     val tokens = state.syntaxHighlighter.tokens.value
 
-    // 2. Nhớ theo mảng `tokens` (mỗi khi C++ parse xong có tokens mới -> vẽ lại ngay)
+    // 2. VisualTransformation giữ nguyên vẹn của bạn
     val visualTransformation = remember(tokens) {
         TreeSitterVisualTransformation(tokens)
     }
@@ -73,6 +89,37 @@ fun CenterEditorPanel(
         FileUtils.truncatePathMiddle(dirPath, 26)
     }
     val dotColor = if (state.isModified) Color(230, 69, 83) else Color(64, 160, 43)
+    
+    val verticalScrollState = rememberScrollState()
+    val codeHorizontalScrollState = rememberScrollState()
+
+    val editorText = state.textFieldValue.text
+    val cursorPosition = state.textFieldValue.selection.end.coerceIn(0, editorText.length)
+
+    // Xác định dòng hiện tại dựa trên số ký tự xuống dòng trước con trỏ
+    val activeLineNumber = remember(editorText, cursorPosition) {
+        if (editorText.isEmpty()) 1
+        else editorText.take(cursorPosition).count { it == '\n' } + 1
+    }
+
+    // Đếm số dòng vật lý thực tế, triệt tiêu hoàn toàn lỗi bẻ dòng
+    val lineNumbers = remember(editorText, activeLineNumber) {
+        val totalLines = editorText.count { it == '\n' } + 1
+        buildAnnotatedString {
+            for (i in 1..totalLines) {
+                if (i > 1) append('\n')
+                val isActive = (i == activeLineNumber)
+                withStyle(
+                    SpanStyle(
+                        color = if (isActive) Color(0xFFF6F5F4) else Color.White.copy(alpha = 0.28f),
+                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                ) {
+                    append(i.toString())
+                }
+            }
+        }
+    }
 
     Box(
         modifier = modifier
@@ -85,32 +132,78 @@ fun CenterEditorPanel(
         CompositionLocalProvider(
             LocalTextInputService provides null
         ) {
-            BasicTextField(
-                value = state.textFieldValue,
-                onValueChange = { newValue ->
-                    state.updateTextFieldValue(newValue)
-                },
-                visualTransformation = visualTransformation,
-                onTextLayout = { state.layoutResult = it },
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    imeAction = androidx.compose.ui.text.input.ImeAction.None
-                ),
+            Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(
-                        start = 16.dp,
-                        end = 16.dp,
+                        start = 12.dp,
+                        end = 12.dp,
                         top = if (isHeaderExpanded) 68.dp else 26.dp,
                         bottom = 16.dp
-                    ),
-                textStyle = TextStyle(
-                    color = Color(0xFFEAEAEA),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 17.sp,
-                    lineHeight = 24.sp
-                ),
-                cursorBrush = SolidColor(EditorColors.accent)
-            )
+                    )
+                    .verticalScroll(verticalScrollState)
+            ) {
+                // --- CỘT SỐ DÒNG (GNOME GUTTER CHUẨN CHỈ) ---
+                Box(
+                    modifier = Modifier
+                        .padding(end = 10.dp)
+                        .drawBehind {
+                            // Kẻ vạch hairline 1px siêu mờ tinh tế bên phải cột số
+                            val strokeWidth = 1.dp.toPx()
+                            val x = size.width
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.08f),
+                                start = Offset(x, 0f),
+                                end = Offset(x, size.height),
+                                strokeWidth = strokeWidth
+                            )
+                        }
+                        .padding(end = 8.dp) // Khoảng cách giữa chữ số tới vạch kẻ
+                ) {
+                    Text(
+                        text = lineNumbers,
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp, // Kích thước thanh lịch
+                            lineHeight = EditorLineHeight,
+                            lineHeightStyle = GnomeLineHeightStyle,
+                            textAlign = TextAlign.End
+                        ),
+                        modifier = Modifier.widthIn(min = 20.dp),
+                        softWrap = false
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp)) // Khoảng thở sau vạch kẻ trước khi vào code
+
+                // --- VÙNG SOẠN THẢO CODE (CUỘN NGANG ĐỘC LẬP KHI DÒNG DÀI) ---
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(codeHorizontalScrollState)
+                ) {
+                    BasicTextField(
+                        value = state.textFieldValue,
+                        onValueChange = { newValue ->
+                            state.updateTextFieldValue(newValue)
+                        },
+                        visualTransformation = visualTransformation,
+                        onTextLayout = { state.layoutResult = it },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            imeAction = androidx.compose.ui.text.input.ImeAction.None
+                        ),
+                        textStyle = TextStyle(
+                            color = Color(0xFFEAEAEA),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 14.sp,
+                            lineHeight = EditorLineHeight,
+                            lineHeightStyle = GnomeLineHeightStyle
+                        ),
+                        cursorBrush = SolidColor(EditorColors.accent),
+                        modifier = Modifier.width(IntrinsicSize.Max)
+                    )
+                }
+            }
         }
 
         // --- GNOME MINIMALIST HEADERBAR MECHANISM ---
@@ -202,7 +295,7 @@ fun CenterEditorPanel(
                     }
                 }
 
-                // GNOME-style Popover displaying full file name and scrollable path with copy button
+                // GNOME-style Popover
                 if (showPopover) {
                     Popup(
                         alignment = Alignment.TopCenter,
@@ -242,7 +335,7 @@ fun CenterEditorPanel(
                                     )
                                 }
 
-                                // Path container: Copy button on the left, horizontally scrollable path on the right
+                                // Path container
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
