@@ -27,7 +27,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalTextInputService
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -37,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
@@ -49,8 +52,6 @@ import com.example.mytexteditor.ui.components.ChevronUpIcon
 import com.example.mytexteditor.ui.theme.EditorColors
 
 private val EditorLineHeight = 24.sp
-
-// Đảm bảo chữ số và text code căn thẳng hàng tâm với nhau
 private val GnomeLineHeightStyle = LineHeightStyle(
     alignment = LineHeightStyle.Alignment.Center,
     trim = LineHeightStyle.Trim.None
@@ -65,11 +66,10 @@ fun CenterEditorPanel(
     var isHeaderExpanded by remember { mutableStateOf(false) }
     var showPopover by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val density = LocalDensity.current
 
-    // 1. Đọc giá trị mảng tokens trực tiếp để Compose vẽ lại syntax
+    // 1. Syntax tokens
     val tokens = state.syntaxHighlighter.tokens.value
-
-    // 2. VisualTransformation giữ nguyên vẹn của bạn
     val visualTransformation = remember(tokens) {
         TreeSitterVisualTransformation(tokens)
     }
@@ -81,30 +81,32 @@ fun CenterEditorPanel(
     val dirPath = remember(state.currentUri) {
         FileUtils.getDirectoryPath(context, state.currentUri)
     }
-
-    val displayFileName = remember(fullFileName) {
-        FileUtils.truncateMiddle(fullFileName, 22)
-    }
-    val displayDirPath = remember(dirPath) {
-        FileUtils.truncatePathMiddle(dirPath, 26)
-    }
+    val displayFileName = remember(fullFileName) { FileUtils.truncateMiddle(fullFileName, 22) }
+    val displayDirPath = remember(dirPath) { FileUtils.truncatePathMiddle(dirPath, 26) }
     val dotColor = if (state.isModified) Color(230, 69, 83) else Color(64, 160, 43)
-    
+
     val verticalScrollState = rememberScrollState()
     val codeHorizontalScrollState = rememberScrollState()
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
 
     val editorText = state.textFieldValue.text
     val cursorPosition = state.textFieldValue.selection.end.coerceIn(0, editorText.length)
 
-    // Xác định dòng hiện tại dựa trên số ký tự xuống dòng trước con trỏ
-    val activeLineNumber = remember(editorText, cursorPosition) {
-        if (editorText.isEmpty()) 1
-        else editorText.take(cursorPosition).count { it == '\n' } + 1
+    // TỐI ƯU CỰC MẠNH: Dùng layoutResult tính toán line trong O(1) thay vì loop scan text
+    val activeLineNumber = remember(cursorPosition, state.layoutResult) {
+        val layout = state.layoutResult
+        if (layout != null && cursorPosition <= layout.layoutInput.text.length) {
+            layout.getLineForOffset(cursorPosition) + 1
+        } else {
+            1
+        }
     }
 
-    // Đếm số dòng vật lý thực tế, triệt tiêu hoàn toàn lỗi bẻ dòng
-    val lineNumbers = remember(editorText, activeLineNumber) {
-        val totalLines = editorText.count { it == '\n' } + 1
+    val totalLines = remember(editorText) {
+        editorText.count { it == '\n' } + 1
+    }
+
+    val lineNumbers = remember(totalLines, activeLineNumber) {
         buildAnnotatedString {
             for (i in 1..totalLines) {
                 if (i > 1) append('\n')
@@ -121,17 +123,43 @@ fun CenterEditorPanel(
         }
     }
 
+    // --- AUTO-SCROLL VIEWPORT KHI JOYSTICK / CON TRỎ DI CHUYỂN ---
+    LaunchedEffect(cursorPosition, state.layoutResult, viewportSize) {
+        val layout = state.layoutResult ?: return@LaunchedEffect
+        if (viewportSize.height == 0 || viewportSize.width == 0) return@LaunchedEffect
+        if (cursorPosition !in 0..layout.layoutInput.text.length) return@LaunchedEffect
+
+        val cursorRect = layout.getCursorRect(cursorPosition)
+        val lineHeightPx = with(density) { EditorLineHeight.toPx() }
+
+        // Cuộn dọc
+        val currentScrollY = verticalScrollState.value
+        val viewHeight = viewportSize.height
+        if (cursorRect.top < currentScrollY) {
+            verticalScrollState.scrollTo(cursorRect.top.toInt())
+        } else if (cursorRect.bottom > currentScrollY + viewHeight - lineHeightPx) {
+            verticalScrollState.scrollTo((cursorRect.bottom - viewHeight + lineHeightPx).toInt())
+        }
+
+        // Cuộn ngang
+        val currentScrollX = codeHorizontalScrollState.value
+        val viewWidth = viewportSize.width
+        if (cursorRect.left < currentScrollX) {
+            codeHorizontalScrollState.scrollTo(cursorRect.left.toInt().coerceAtLeast(0))
+        } else if (cursorRect.right > currentScrollX + viewWidth - 60) {
+            codeHorizontalScrollState.scrollTo((cursorRect.right - viewWidth + 80).toInt())
+        }
+    }
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(EditorColors.editorSurface)
             .border(BorderStroke(1.dp, Color(0xFF333333)), RoundedCornerShape(14.dp))
+            .onSizeChanged { viewportSize = it }
     ) {
-        // Suppress the system soft keyboard completely
         @Suppress("DEPRECATION")
-        CompositionLocalProvider(
-            LocalTextInputService provides null
-        ) {
+        CompositionLocalProvider(LocalTextInputService provides null) {
             Row(
                 modifier = Modifier
                     .fillMaxSize()
@@ -143,40 +171,11 @@ fun CenterEditorPanel(
                     )
                     .verticalScroll(verticalScrollState)
             ) {
-                // --- CỘT SỐ DÒNG (GNOME GUTTER CHUẨN CHỈ) ---
-                Box(
-                    modifier = Modifier
-                        .padding(end = 10.dp)
-                        .drawBehind {
-                            // Kẻ vạch hairline 1px siêu mờ tinh tế bên phải cột số
-                            val strokeWidth = 1.dp.toPx()
-                            val x = size.width
-                            drawLine(
-                                color = Color.White.copy(alpha = 0.08f),
-                                start = Offset(x, 0f),
-                                end = Offset(x, size.height),
-                                strokeWidth = strokeWidth
-                            )
-                        }
-                        .padding(end = 8.dp) // Khoảng cách giữa chữ số tới vạch kẻ
-                ) {
-                    Text(
-                        text = lineNumbers,
-                        style = TextStyle(
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp, // Kích thước thanh lịch
-                            lineHeight = EditorLineHeight,
-                            lineHeightStyle = GnomeLineHeightStyle,
-                            textAlign = TextAlign.End
-                        ),
-                        modifier = Modifier.widthIn(min = 20.dp),
-                        softWrap = false
-                    )
-                }
+                // CỘT SỐ DÒNG
+                GnomeGutter(lineNumbers = lineNumbers)
+                Spacer(modifier = Modifier.width(6.dp))
 
-                Spacer(modifier = Modifier.width(6.dp)) // Khoảng thở sau vạch kẻ trước khi vào code
-
-                // --- VÙNG SOẠN THẢO CODE (CUỘN NGANG ĐỘC LẬP KHI DÒNG DÀI) ---
+                // VÙNG CODE
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -184,9 +183,7 @@ fun CenterEditorPanel(
                 ) {
                     BasicTextField(
                         value = state.textFieldValue,
-                        onValueChange = { newValue ->
-                            state.updateTextFieldValue(newValue)
-                        },
+                        onValueChange = { newValue -> state.updateTextFieldValue(newValue) },
                         visualTransformation = visualTransformation,
                         onTextLayout = { state.layoutResult = it },
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
@@ -206,18 +203,14 @@ fun CenterEditorPanel(
             }
         }
 
-        // --- GNOME MINIMALIST HEADERBAR MECHANISM ---
-        // 1. When Collapsed: Minimal Chevron-down handle at top edge
+        // GNOME Minimalist HeaderBar
         if (!isHeaderExpanded) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
                     .background(Color(0xFF2A2A2A))
-                    .border(
-                        BorderStroke(1.dp, Color(0xFF3D3D3D)),
-                        RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp)
-                    )
+                    .border(BorderStroke(1.dp, Color(0xFF3D3D3D)), RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
                     .clickable { isHeaderExpanded = true }
                     .padding(horizontal = 16.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center
@@ -226,7 +219,6 @@ fun CenterEditorPanel(
             }
         }
 
-        // 2. When Expanded: Floating Pill HeaderBar (GNOME Libadwaita style)
         AnimatedVisibility(
             visible = isHeaderExpanded,
             enter = slideInVertically { -it } + fadeIn(),
@@ -241,21 +233,13 @@ fun CenterEditorPanel(
                     modifier = Modifier
                         .shadow(12.dp, RoundedCornerShape(16.dp))
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF282828)) // GNOME Dark Pill
+                        .background(Color(0xFF282828))
                         .border(BorderStroke(1.dp, Color(0xFF404040)), RoundedCornerShape(16.dp))
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Status dot: Green = Saved, Red = Modified / Unsaved
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(dotColor)
-                    )
-
-                    // Title & Path Column: Clickable to toggle GNOME Popover
+                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(dotColor))
                     Column(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
@@ -263,23 +247,9 @@ fun CenterEditorPanel(
                             .padding(horizontal = 8.dp, vertical = 2.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(
-                            text = displayFileName,
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = displayDirPath,
-                            color = Color(0xFF9A9996),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Normal
-                        )
+                        Text(text = displayFileName, color = Color.White, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold)
+                        Text(text = displayDirPath, color = Color(0xFF9A9996), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                     }
-
-                    // Chevron Up to collapse
                     Box(
                         modifier = Modifier
                             .size(26.dp)
@@ -295,7 +265,6 @@ fun CenterEditorPanel(
                     }
                 }
 
-                // GNOME-style Popover
                 if (showPopover) {
                     Popup(
                         alignment = Alignment.TopCenter,
@@ -312,30 +281,14 @@ fun CenterEditorPanel(
                                 .border(BorderStroke(1.dp, Color(0xFF444444)), RoundedCornerShape(12.dp))
                                 .padding(12.dp)
                         ) {
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                // Full File Name
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(7.dp)
-                                            .clip(CircleShape)
-                                            .background(dotColor)
-                                    )
-                                    Text(
-                                        text = fullFileName,
-                                        color = Color.White,
-                                        fontSize = 13.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(dotColor))
+                                    Text(text = fullFileName, color = Color.White, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                                 }
-
-                                // Path container
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -345,7 +298,6 @@ fun CenterEditorPanel(
                                         .padding(6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // GNOME Pill Copy Button
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
@@ -358,30 +310,11 @@ fun CenterEditorPanel(
                                             .padding(horizontal = 8.dp, vertical = 4.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(
-                                            text = "Copy",
-                                            color = Color.White,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
+                                        Text(text = "Copy", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                     }
-
                                     Spacer(modifier = Modifier.width(8.dp))
-
-                                    // Scrollable full path
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .horizontalScroll(rememberScrollState())
-                                    ) {
-                                        Text(
-                                            text = fullPath,
-                                            color = Color(0xFFCCCCCC),
-                                            fontSize = 11.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            maxLines = 1,
-                                            softWrap = false
-                                        )
+                                    Box(modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+                                        Text(text = fullPath, color = Color(0xFFCCCCCC), fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 1, softWrap = false)
                                     }
                                 }
                             }
@@ -390,5 +323,40 @@ fun CenterEditorPanel(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun GnomeGutter(
+    lineNumbers: androidx.compose.ui.text.AnnotatedString,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .padding(end = 10.dp)
+            .drawBehind {
+                val strokeWidth = 1.dp.toPx()
+                val x = size.width
+                drawLine(
+                    color = Color.White.copy(alpha = 0.08f),
+                    start = Offset(x, 0f),
+                    end = Offset(x, size.height),
+                    strokeWidth = strokeWidth
+                )
+            }
+            .padding(end = 8.dp)
+    ) {
+        Text(
+            text = lineNumbers,
+            style = TextStyle(
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
+                lineHeight = EditorLineHeight,
+                lineHeightStyle = GnomeLineHeightStyle,
+                textAlign = TextAlign.End
+            ),
+            modifier = Modifier.widthIn(min = 20.dp),
+            softWrap = false
+        )
     }
 }

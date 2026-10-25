@@ -1,7 +1,6 @@
 package com.example.mytexteditor.ui.editor
 
 import android.net.Uri
-import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,6 +32,7 @@ import com.example.mytexteditor.model.RightMode
 import com.example.mytexteditor.state.rememberEditorState
 import com.example.mytexteditor.ui.components.HeaderActionPill
 import com.example.mytexteditor.ui.theme.EditorColors
+import com.example.mytexteditor.ui.utils.EditorHaptics
 
 @Composable
 fun EditorScreen() {
@@ -41,10 +41,14 @@ fun EditorScreen() {
     val view = LocalView.current
     val haptic = LocalHapticFeedback.current
 
+    // KHẮC PHỤC LỖI SYNTAX HIGHLIGHT KHI MỚI MỞ APP
+    LaunchedEffect(Unit) {
+        state.syntaxHighlighter.updateText(state.textFieldValue.text)
+    }
+
     var showNewFileDialog by remember { mutableStateOf(false) }
     var pendingNewFileAfterSave by remember { mutableStateOf(false) }
 
-    // SAF Launchers
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -57,6 +61,7 @@ fun EditorScreen() {
                 state.currentUri = uri
                 state.fileName = name
                 state.updateTextFieldValue(TextFieldValue(content, TextRange(0)), markModified = false)
+                state.syntaxHighlighter.updateText(content)
                 state.clearHistory()
                 state.isModified = false
                 Toast.makeText(context, "Đã mở $name", Toast.LENGTH_SHORT).show()
@@ -80,7 +85,6 @@ fun EditorScreen() {
                     state.updateTextFieldValue(TextFieldValue("", TextRange(0)), markModified = false)
                     state.clearHistory()
                     state.isModified = false
-                    Toast.makeText(context, "Đã lưu $name & tạo file mới", Toast.LENGTH_SHORT).show()
                 } else {
                     state.currentUri = uri
                     state.fileName = name
@@ -110,9 +114,7 @@ fun EditorScreen() {
         }
     }
 
-    val onSaveAsAction = {
-        createDocumentLauncher.launch(state.fileName)
-    }
+    val onSaveAsAction = { createDocumentLauncher.launch(state.fileName) }
 
     val onNewFileAction = {
         if (state.isModified) {
@@ -127,15 +129,10 @@ fun EditorScreen() {
         }
     }
 
-    val onOpenFileAction = {
-        openDocumentLauncher.launch(arrayOf("*/*"))
-    }
+    val onOpenFileAction = { openDocumentLauncher.launch(arrayOf("*/*")) }
+    val onMenuAction = { Toast.makeText(context, "Menu (Tính năng sẽ cập nhật)", Toast.LENGTH_SHORT).show() }
 
-    val onMenuAction = {
-        Toast.makeText(context, "Menu (Tính năng sẽ cập nhật)", Toast.LENGTH_SHORT).show()
-    }
-
-    // GNOME Style Popup for Unsaved Changes on New File
+    // GNOME Unsaved Dialog giữ nguyên
     if (showNewFileDialog) {
         Dialog(
             onDismissRequest = { showNewFileDialog = false },
@@ -148,30 +145,15 @@ fun EditorScreen() {
                     .border(BorderStroke(1.dp, Color(0xFF3E3E3E)), RoundedCornerShape(16.dp))
                     .padding(20.dp)
             ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Text(
-                        text = "Tạo file mới",
-                        color = Color.White,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Bạn có muốn lưu file hiện tại trước khi tạo mới không?",
-                        color = Color(0xFFCCCCCC),
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(text = "Tạo file mới", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "Bạn có muốn lưu file hiện tại trước khi tạo mới không?", color = Color(0xFFCCCCCC), fontSize = 14.sp, lineHeight = 20.sp)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        HeaderActionPill(
-                            text = "Hủy",
-                            onClick = { showNewFileDialog = false }
-                        )
+                        HeaderActionPill(text = "Hủy", onClick = { showNewFileDialog = false })
                         Spacer(modifier = Modifier.width(8.dp))
                         HeaderActionPill(
                             text = "Không lưu",
@@ -183,7 +165,6 @@ fun EditorScreen() {
                                 state.updateTextFieldValue(TextFieldValue("", TextRange(0)), markModified = false)
                                 state.clearHistory()
                                 state.isModified = false
-                                Toast.makeText(context, "Đã tạo file mới", Toast.LENGTH_SHORT).show()
                             }
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -200,9 +181,6 @@ fun EditorScreen() {
                                         state.updateTextFieldValue(TextFieldValue("", TextRange(0)), markModified = false)
                                         state.clearHistory()
                                         state.isModified = false
-                                        Toast.makeText(context, "Đã lưu & tạo file mới", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "Lỗi lưu file!", Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
                                     pendingNewFileAfterSave = true
@@ -218,13 +196,14 @@ fun EditorScreen() {
 
     val onKeyAction = remember(state, context, view) {
         { key: String ->
-            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             state.onKey(key, context)
         }
     }
+
     val onJoystickAction = remember(state, haptic) {
         { direction: Direction -> state.onJoystickDirection(direction, haptic) }
     }
+
     val onToggleModeAction = remember(state, haptic) {
         { mode: RightMode ->
             state.rightMode = mode
@@ -239,7 +218,6 @@ fun EditorScreen() {
             .padding(6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // --- LEFT PANEL (27%) ---
         LeftPanel(
             isShiftMode = state.isShiftMode,
             isSymbolMode = state.isSymbolMode,
@@ -247,20 +225,14 @@ fun EditorScreen() {
             onKey = onKeyAction,
             onNewFile = onNewFileAction,
             onOpenFile = onOpenFileAction,
-            modifier = Modifier
-                .weight(0.27f)
-                .fillMaxHeight()
+            modifier = Modifier.weight(0.27f).fillMaxHeight()
         )
 
-        // --- CENTER PANEL (46%) ---
         CenterEditorPanel(
             state = state,
-            modifier = Modifier
-                .weight(0.46f)
-                .fillMaxHeight()
+            modifier = Modifier.weight(0.46f).fillMaxHeight()
         )
 
-        // --- RIGHT PANEL (27%) ---
         RightPanel(
             rightMode = state.rightMode,
             isShiftMode = state.isShiftMode,
@@ -271,9 +243,7 @@ fun EditorScreen() {
             onSave = onSaveAction,
             onSaveAs = onSaveAsAction,
             onMenu = onMenuAction,
-            modifier = Modifier
-                .weight(0.27f)
-                .fillMaxHeight()
+            modifier = Modifier.weight(0.27f).fillMaxHeight()
         )
     }
 }

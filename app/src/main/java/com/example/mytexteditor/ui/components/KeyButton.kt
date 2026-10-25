@@ -1,7 +1,6 @@
 package com.example.mytexteditor.ui.components
 
 import android.os.SystemClock
-import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.mytexteditor.ui.utils.EditorHaptics
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -38,48 +39,58 @@ fun KeyButton(
     bgColor: Color = Color(0xFF323232),
     textColor: Color = Color.White,
     isRepeatable: Boolean = false,
-    onFlick: (() -> Unit)? = null, // Callback khi gạt lên
+    onFlick: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
     var isPressed by remember { mutableStateOf(false) }
+    
+    // Giữ trạng thái mới nhất bằng rememberUpdatedState để pointerInput(Unit) không bao giờ bị restart
     val currentOnClick by rememberUpdatedState(onClick)
     val currentOnFlick by rememberUpdatedState(onFlick)
+    val currentIsRepeatable by rememberUpdatedState(isRepeatable)
+    val currentSecondaryText by rememberUpdatedState(secondaryText)
+
     val scope = rememberCoroutineScope()
     val view = LocalView.current
+    val context = LocalContext.current
     val density = LocalDensity.current
 
-    // Ngưỡng: Vuốt lên trên ít nhất 20dp và thời gian dưới 250ms
-    val flickDistanceThresholdPx = remember(density) { with(density) { 20.dp.toPx() } }
-    val flickTimeThresholdMs = 250L
+    // Ngưỡng vuốt: giảm xuống 16dp để nhạy hơn, thời gian 280ms
+    val flickDistanceThresholdPx = remember(density) { with(density) { 16.dp.toPx() } }
+    val flickTimeThresholdMs = 280L
 
     Box(
         modifier = modifier
             .height(54.dp)
-            .pointerInput(isRepeatable, secondaryText != null) {
+            // QUAN TRỌNG: pointerInput(Unit) giúp KHÔNG BAO GIỜ bị restart coroutine khi ấn ?123
+            .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     isPressed = true
 
+                    // 1. PHẢN HỒI XÚC GIÁC TỨC THÌ (ZERO LATENCY HAPTIC) NGAY KHI CHẠM
+                    EditorHaptics.keyPress(view, context)
+
                     val startY = down.position.y
                     val startTime = SystemClock.uptimeMillis()
 
                     var repeatJob: Job? = null
-                    if (isRepeatable) {
+                    if (currentIsRepeatable) {
                         currentOnClick()
                         repeatJob = scope.launch {
                             delay(350)
                             while (isActive) {
+                                EditorHaptics.keyPress(view, context)
                                 currentOnClick()
                                 delay(45)
                             }
                         }
-                    } else if (secondaryText == null) {
-                        currentOnClick()
                     }
 
                     var endY = startY
                     var wasReleased = false
+
                     try {
                         while (true) {
                             val event = awaitPointerEvent()
@@ -96,14 +107,17 @@ fun KeyButton(
                         isPressed = false
                     }
 
-                    if (wasReleased && !isRepeatable && secondaryText != null) {
+                    // 2. XỬ LÝ NHẢ TAY (RELEASE)
+                    if (wasReleased && !currentIsRepeatable) {
                         val deltaY = endY - startY
                         val elapsedTime = SystemClock.uptimeMillis() - startTime
 
-                        if (currentOnFlick != null &&
-                            deltaY < -flickDistanceThresholdPx && elapsedTime < flickTimeThresholdMs
+                        // Kiểm tra nếu là thao tác gạt lên (Flick Up)
+                        if (currentSecondaryText != null &&
+                            currentOnFlick != null &&
+                            deltaY < -flickDistanceThresholdPx &&
+                            elapsedTime < flickTimeThresholdMs
                         ) {
-                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                             currentOnFlick?.invoke()
                         } else {
                             currentOnClick()
