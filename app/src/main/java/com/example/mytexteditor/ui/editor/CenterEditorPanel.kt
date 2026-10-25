@@ -1,5 +1,10 @@
 package com.example.mytexteditor.ui.editor
 
+import androidx.compose.material3.CircularProgressIndicator
+import com.example.mytexteditor.data.CodeRunner
+import com.example.mytexteditor.data.ExecutionResult
+import com.example.mytexteditor.ui.components.GnomeConsoleSheet
+import kotlinx.coroutines.launch
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -67,6 +72,22 @@ fun CenterEditorPanel(
     var showPopover by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val density = LocalDensity.current
+
+    // RUNNER STATE
+    val coroutineScope = rememberCoroutineScope()
+    var isRunningCode by remember { mutableStateOf(false) }
+    var executionResult by remember { mutableStateOf<ExecutionResult?>(null) }
+    var isConsoleVisible by remember { mutableStateOf(false) }
+
+    val executeCodeAction: (String) -> Unit = { stdin ->
+        isRunningCode = true
+        isConsoleVisible = true
+        coroutineScope.launch {
+            val res = CodeRunner.runCpp(state.textFieldValue.text, stdin)
+            executionResult = res
+            isRunningCode = false
+        }
+    }
 
     // 1. Syntax tokens
     val tokens = state.syntaxHighlighter.tokens.value
@@ -250,6 +271,34 @@ fun CenterEditorPanel(
                         Text(text = displayFileName, color = Color.White, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold)
                         Text(text = displayDirPath, color = Color(0xFF9A9996), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                     }
+                    // 1. NÚT RUN (Đứng riêng chuẩn GNOME)
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(if (isRunningCode) Color(0xFF383838) else Color(0xFF2EC27E))
+                            .clickable(enabled = !isRunningCode) {
+                                executeCodeAction("")
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isRunningCode) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                color = Color.White,
+                                strokeWidth = 1.5.dp
+                            )
+                        } else {
+                            Text(
+                                text = "▶",
+                                color = Color.Black,
+                                fontSize = 10.sp,
+                                modifier = Modifier.padding(start = 1.5.dp)
+                            )
+                        }
+                    }
+
+                    // 2. NÚT ĐÓNG HEADER (Đứng cạnh nút Run)
                     Box(
                         modifier = Modifier
                             .size(26.dp)
@@ -322,6 +371,23 @@ fun CenterEditorPanel(
                     }
                 }
             }
+        }
+            // --- GNOME CONSOLE BOTTOM SHEET OVERLAY ---
+        AnimatedVisibility(
+            visible = isConsoleVisible,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            GnomeConsoleSheet(
+                result = executionResult,
+                isRunning = isRunningCode,
+                onClose = { isConsoleVisible = false },
+                onReRun = { stdin -> executeCodeAction(stdin) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 160.dp, max = 220.dp)
+            )
         }
     }
 }
