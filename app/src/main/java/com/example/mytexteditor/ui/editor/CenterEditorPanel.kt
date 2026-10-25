@@ -1,15 +1,17 @@
 package com.example.mytexteditor.ui.editor
 
-import android.net.Uri
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -24,19 +26,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalTextInputService
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import kotlinx.coroutines.launch
-import com.example.mytexteditor.state.*
-import com.example.mytexteditor.data.*
-import com.example.mytexteditor.ui.components.*
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import com.example.mytexteditor.data.FileUtils
+import com.example.mytexteditor.state.EditorState
+import com.example.mytexteditor.ui.components.ChevronDownIcon
+import com.example.mytexteditor.ui.components.ChevronUpIcon
 import com.example.mytexteditor.ui.theme.EditorColors
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -46,169 +46,24 @@ fun CenterEditorPanel(
     modifier: Modifier = Modifier
 ) {
     var isHeaderExpanded by remember { mutableStateOf(false) }
-    var showNewFileDialog by remember { mutableStateOf(false) }
-    var pendingNewFileAfterSave by remember { mutableStateOf(false) }
+    var showPopover by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    // SAF Launchers
-    val openDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            try {
-                val content = context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    inputStream.bufferedReader(Charsets.UTF_8).readText()
-                } ?: ""
-                val name = FileUtils.getFileName(context, uri) ?: "untitled.kt"
-                state.currentUri = uri
-                state.fileName = name
-                state.textFieldValue = TextFieldValue(content, TextRange(0))
-                state.clearHistory()
-                state.isModified = false
-                Toast.makeText(context, "Đã mở $name", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(context, "Lỗi mở file: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-            }
-        }
+    val fullFileName = state.fileName
+    val fullPath = remember(state.currentUri, state.fileName) {
+        FileUtils.getFilePath(context, state.currentUri)
+    }
+    val dirPath = remember(state.currentUri) {
+        FileUtils.getDirectoryPath(context, state.currentUri)
     }
 
-    val createDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("text/plain")
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val success = FileUtils.saveToFile(context, uri, state.textFieldValue.text)
-            if (success) {
-                val name = FileUtils.getFileName(context, uri) ?: state.fileName
-                if (pendingNewFileAfterSave) {
-                    pendingNewFileAfterSave = false
-                    state.currentUri = null
-                    state.fileName = "untitled.kt"
-                    state.textFieldValue = TextFieldValue("", TextRange(0))
-                    state.clearHistory()
-                    state.isModified = false
-                    Toast.makeText(context, "Đã lưu $name & tạo file mới", Toast.LENGTH_SHORT).show()
-                } else {
-                    state.currentUri = uri
-                    state.fileName = name
-                    state.isModified = false
-                    Toast.makeText(context, "Đã lưu $name!", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                pendingNewFileAfterSave = false
-                Toast.makeText(context, "Lỗi lưu file!", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            pendingNewFileAfterSave = false
-        }
+    val displayFileName = remember(fullFileName) {
+        FileUtils.truncateMiddle(fullFileName, 22)
     }
-
-    val onSaveAction = {
-        if (state.currentUri != null) {
-            val success = FileUtils.saveToFile(context, state.currentUri!!, state.textFieldValue.text)
-            if (success) {
-                state.isModified = false
-                Toast.makeText(context, "Đã lưu!", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "Lỗi lưu file!", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            createDocumentLauncher.launch(state.fileName)
-        }
+    val displayDirPath = remember(dirPath) {
+        FileUtils.truncatePathMiddle(dirPath, 26)
     }
-
-    val onNewFileAction = {
-        if (state.isModified) {
-            showNewFileDialog = true
-        } else {
-            state.currentUri = null
-            state.fileName = "untitled.kt"
-            state.textFieldValue = TextFieldValue("", TextRange(0))
-            state.clearHistory()
-            state.isModified = false
-            Toast.makeText(context, "Đã tạo file mới", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    // GNOME Style Popup for Unsaved Changes on New File
-    if (showNewFileDialog) {
-        Dialog(
-            onDismissRequest = { showNewFileDialog = false },
-            properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true)
-        ) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF282828))
-                    .border(BorderStroke(1.dp, Color(0xFF3E3E3E)), RoundedCornerShape(16.dp))
-                    .padding(20.dp)
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Text(
-                        text = "Tạo file mới",
-                        color = Color.White,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Bạn có muốn lưu file hiện tại trước khi tạo mới không?",
-                        color = Color(0xFFCCCCCC),
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        HeaderActionPill(
-                            text = "Hủy",
-                            onClick = { showNewFileDialog = false }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        HeaderActionPill(
-                            text = "Không lưu",
-                            bgColor = Color(0xFF552222),
-                            onClick = {
-                                showNewFileDialog = false
-                                state.currentUri = null
-                                state.fileName = "untitled.kt"
-                                state.textFieldValue = TextFieldValue("", TextRange(0))
-                                state.clearHistory()
-                                state.isModified = false
-                                Toast.makeText(context, "Đã tạo file mới", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        HeaderActionPill(
-                            text = "Lưu",
-                            isAccent = true,
-                            onClick = {
-                                showNewFileDialog = false
-                                if (state.currentUri != null) {
-                                    val success = FileUtils.saveToFile(context, state.currentUri!!, state.textFieldValue.text)
-                                    if (success) {
-                                        state.currentUri = null
-                                        state.fileName = "untitled.kt"
-                                        state.textFieldValue = TextFieldValue("", TextRange(0))
-                                        state.clearHistory()
-                                        state.isModified = false
-                                        Toast.makeText(context, "Đã lưu & tạo file mới", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "Lỗi lưu file!", Toast.LENGTH_SHORT).show()
-                                    }
-                                } else {
-                                    pendingNewFileAfterSave = true
-                                    createDocumentLauncher.launch(state.fileName)
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
+    val dotColor = if (state.isModified) Color(230, 69, 83) else Color(64, 160, 43)
 
     Box(
         modifier = modifier
@@ -238,7 +93,7 @@ fun CenterEditorPanel(
                     .padding(
                         start = 16.dp,
                         end = 16.dp,
-                        top = if (isHeaderExpanded) 62.dp else 26.dp,
+                        top = if (isHeaderExpanded) 68.dp else 26.dp,
                         bottom = 16.dp
                     ),
                 textStyle = TextStyle(
@@ -278,71 +133,160 @@ fun CenterEditorPanel(
             exit = slideOutVertically { -it } + fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
-            Row(
-                modifier = Modifier
-                    .padding(top = 10.dp)
-                    .shadow(12.dp, CircleShape)
-                    .clip(CircleShape)
-                    .background(Color(0xFF2C2C2C)) // GNOME Dark Pill
-                    .border(BorderStroke(1.dp, Color(0xFF444444)), CircleShape)
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Box(
+                modifier = Modifier.padding(top = 10.dp),
+                contentAlignment = Alignment.TopCenter
             ) {
-                // New File button
-                HeaderActionPill(
-                    text = "New",
-                    onClick = onNewFileAction
-                )
-
-                // Open File button
-                HeaderActionPill(
-                    text = "Open",
-                    onClick = {
-                        openDocumentLauncher.launch(arrayOf("*/*"))
-                    }
-                )
-
-                // File Name with Status Dot Indicator:
-                // Green rgb(64, 160, 43) = Saved; Red rgb(230, 69, 83) = Modified / Unsaved
-                val dotColor = if (state.isModified) Color(230, 69, 83) else Color(64, 160, 43)
                 Row(
+                    modifier = Modifier
+                        .shadow(12.dp, RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF282828)) // GNOME Dark Pill
+                        .border(BorderStroke(1.dp, Color(0xFF404040)), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(horizontal = 4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    // Status dot: Green = Saved, Red = Modified / Unsaved
                     Box(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
                             .background(dotColor)
                     )
-                    Text(
-                        text = state.fileName,
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.SemiBold
-                    )
+
+                    // Title & Path Column: Clickable to toggle GNOME Popover
+                    Column(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { showPopover = !showPopover }
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = displayFileName,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = displayDirPath,
+                            color = Color(0xFF9A9996),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Normal
+                        )
+                    }
+
+                    // Chevron Up to collapse
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF383838))
+                            .clickable {
+                                isHeaderExpanded = false
+                                showPopover = false
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ChevronUpIcon(color = Color(0xFFDDDDDD))
+                    }
                 }
 
-                // Save button
-                HeaderActionPill(
-                    text = "Save",
-                    isAccent = true,
-                    onClick = onSaveAction
-                )
+                // GNOME-style Popover displaying full file name and scrollable path with copy button
+                if (showPopover) {
+                    Popup(
+                        alignment = Alignment.TopCenter,
+                        offset = androidx.compose.ui.unit.IntOffset(0, 160),
+                        onDismissRequest = { showPopover = false },
+                        properties = PopupProperties(focusable = true)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .widthIn(min = 280.dp, max = 380.dp)
+                                .shadow(16.dp, RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF2C2C2C))
+                                .border(BorderStroke(1.dp, Color(0xFF444444)), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // Full File Name
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(dotColor)
+                                    )
+                                    Text(
+                                        text = fullFileName,
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
 
-                // Chevron Up to collapse
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(EditorColors.border)
-                        .clickable { isHeaderExpanded = false },
-                    contentAlignment = Alignment.Center
-                ) {
-                    ChevronUpIcon(color = Color(0xFFDDDDDD))
+                                // Path container: Copy button on the left, horizontally scrollable path on the right
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF1E1E1E))
+                                        .border(BorderStroke(1.dp, Color(0xFF363636)), RoundedCornerShape(8.dp))
+                                        .padding(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // GNOME Pill Copy Button
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(EditorColors.accent)
+                                            .clickable {
+                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                clipboard.setPrimaryClip(ClipData.newPlainText("path", fullPath))
+                                                Toast.makeText(context, "Đã sao chép đường dẫn!", Toast.LENGTH_SHORT).show()
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "Copy",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    // Scrollable full path
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .horizontalScroll(rememberScrollState())
+                                    ) {
+                                        Text(
+                                            text = fullPath,
+                                            color = Color(0xFFCCCCCC),
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

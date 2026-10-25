@@ -27,15 +27,44 @@ fun RightPanel(
     onKey: (String) -> Unit,
     onJoystickDirection: (Direction) -> Unit,
     onToggleMode: (RightMode) -> Unit,
+    onSave: () -> Unit,
+    onSaveAs: () -> Unit,
+    onMenu: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier.padding(bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
+        verticalArrangement = Arrangement.SpaceBetween,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Top Row: Save / Save As & Hamburger Menu buttons
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            PadIconButton(
+                iconRes = if (isShiftMode) R.drawable.ic_save_as else R.drawable.ic_save,
+                contentDescription = if (isShiftMode) "Save As" else "Save",
+                isAccent = isShiftMode,
+                onClick = if (isShiftMode) onSaveAs else onSave
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            PadIconButton(
+                iconRes = R.drawable.ic_menu,
+                contentDescription = "Menu",
+                onClick = onMenu
+            )
+        }
+
         if (rightMode == RightMode.TYPING) {
-            if (isSymbolMode) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                if (isSymbolMode) {
                 // Mode ?123 - Cụm tay phải: Toán tử
                 // Row 1: 6, 7, 8, 9, 0
                 Row(modifier = Modifier.fillMaxWidth()) {
@@ -148,7 +177,8 @@ fun RightPanel(
                     ) { onToggleMode(RightMode.JOYSTICK) }
                 }
             }
-        } else {
+        }
+    } else {
             // Mode B: Joystick Mode - Fully centered in both width & height
             Box(
                 modifier = Modifier

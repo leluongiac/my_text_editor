@@ -23,14 +23,42 @@ fun LeftPanel(
     isSymbolMode: Boolean,
     isCtrlPressed: Boolean,
     onKey: (String) -> Unit,
+    onNewFile: () -> Unit,
+    onOpenFile: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier.padding(bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
+        verticalArrangement = Arrangement.SpaceBetween,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        if (isSymbolMode) {
+        // Top Row: New & Open buttons
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.Start,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            PadIconButton(
+                iconRes = R.drawable.ic_new,
+                contentDescription = "New File",
+                onClick = onNewFile
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            PadIconButton(
+                iconRes = R.drawable.ic_open,
+                contentDescription = "Open File",
+                onClick = onOpenFile
+            )
+        }
+
+        // Bottom Keyboard Rows
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            if (isSymbolMode) {
             // Mode ?123 - Cụm tay trái: Bộ Ngoặc
             // Row 1: 1, 2, 3, 4, 5
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -128,4 +156,5 @@ fun LeftPanel(
             }
         }
     }
+}
 }
