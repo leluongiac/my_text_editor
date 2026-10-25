@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -16,7 +17,6 @@ class AsyncSyntaxHighlighter(
     private val _tokens = mutableStateOf(IntArray(0))
     val tokens: State<IntArray> = _tokens
 
-    // Conflated flow: only latest text is parsed, drops intermediate typing states
     private val textFlow = MutableSharedFlow<String>(
         replay = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
@@ -25,6 +25,8 @@ class AsyncSyntaxHighlighter(
     init {
         scope.launch {
             textFlow.collectLatest { text ->
+                // Chờ 15ms xem user có gõ tiếp không, nếu gõ tiếp thì hủy lệnh cũ tránh tốn pin
+                delay(15)
                 try {
                     val result = NativeSyntaxEngine.parseCpp(text)
                     _tokens.value = result

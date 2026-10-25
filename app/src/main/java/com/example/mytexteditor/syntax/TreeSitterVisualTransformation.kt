@@ -1,6 +1,5 @@
 package com.example.mytexteditor.syntax
 
-import androidx.compose.runtime.State
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.input.OffsetMapping
@@ -8,12 +7,11 @@ import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 
 class TreeSitterVisualTransformation(
-    private val tokensState: State<IntArray>,
+    private val tokens: IntArray,
     private val colorScheme: SyntaxColorScheme = SyntaxColorScheme()
 ) : VisualTransformation {
 
     override fun filter(text: AnnotatedString): TransformedText {
-        val tokens = tokensState.value
         val textLength = text.length
 
         if (tokens.isEmpty() || textLength == 0) {
@@ -29,6 +27,7 @@ class TreeSitterVisualTransformation(
             val end = tokens[idx + 1]
             val type = tokens[idx + 2]
 
+            // Bảo vệ an toàn index không bao giờ văng Exception
             if (start in 0 until textLength && end in (start + 1)..textLength) {
                 val color = when (type) {
                     1 -> colorScheme.keywordColor
@@ -46,5 +45,15 @@ class TreeSitterVisualTransformation(
         }
 
         return TransformedText(builder.toAnnotatedString(), OffsetMapping.Identity)
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is TreeSitterVisualTransformation) return false
+        return tokens.contentEquals(other.tokens) && colorScheme == other.colorScheme
+    }
+
+    override fun hashCode(): Int {
+        return tokens.contentHashCode() * 31 + colorScheme.hashCode()
     }
 }

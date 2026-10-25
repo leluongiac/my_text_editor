@@ -8,14 +8,7 @@
 
 extern "C" const TSLanguage *tree_sitter_cpp(void);
 
-// Tree-sitter C++ highlight query
-// Token Types:
-// 1: Keyword (e.g. #include, using, int, return)
-// 2: Type (e.g. std, string, vector)
-// 3: String Literal (e.g. "...", '<...>')
-// 4: Comment (e.g. // ..., /* ... */)
-// 5: Function / Operator (e.g. cout, <<, endl)
-// 6: Number Literal (e.g. 123, 0xAA, 3.14)
+// Query chuẩn xác cho C++
 static const char* CPP_HIGHLIGHT_QUERY =
     "\"break\" @keyword\n"
     "\"case\" @keyword\n"
@@ -38,14 +31,6 @@ static const char* CPP_HIGHLIGHT_QUERY =
     "\"union\" @keyword\n"
     "\"volatile\" @keyword\n"
     "\"while\" @keyword\n"
-    "\"#define\" @keyword\n"
-    "\"#elif\" @keyword\n"
-    "\"#else\" @keyword\n"
-    "\"#endif\" @keyword\n"
-    "\"#if\" @keyword\n"
-    "\"#ifdef\" @keyword\n"
-    "\"#ifndef\" @keyword\n"
-    "\"#include\" @keyword\n"
     "(preproc_directive) @keyword\n"
     "[\n"
     " \"catch\"\n"
@@ -54,8 +39,6 @@ static const char* CPP_HIGHLIGHT_QUERY =
     " \"co_return\"\n"
     " \"co_yield\"\n"
     " \"constexpr\"\n"
-    " \"constinit\"\n"
-    " \"consteval\"\n"
     " \"delete\"\n"
     " \"explicit\"\n"
     " \"final\"\n"
@@ -73,8 +56,6 @@ static const char* CPP_HIGHLIGHT_QUERY =
     " \"try\"\n"
     " \"typename\"\n"
     " \"using\"\n"
-    " \"concept\"\n"
-    " \"requires\"\n"
     " \"virtual\"\n"
     " \"nullptr\"\n"
     "] @keyword\n"
@@ -115,14 +96,9 @@ static const char* CPP_HIGHLIGHT_QUERY =
     "(call_expression function: (identifier) @function)\n"
     "(call_expression function: (field_expression field: (field_identifier) @function))\n"
     "(call_expression function: (qualified_identifier name: (identifier) @function))\n"
-    "(function_declarator declarator: (identifier) @function)\n"
-    "(function_declarator declarator: (qualified_identifier name: (identifier) @function))\n"
-    "(function_declarator declarator: (field_identifier) @function)\n"
-    "(template_function name: (identifier) @function)\n"
-    "(template_method name: (field_identifier) @function)\n"
-    "(null) @keyword\n";
+    "(function_declarator declarator: (identifier) @function)\n";
 
-CppHighlighter::CppHighlighter() : parser(nullptr), query(nullptr), old_tree(nullptr) {
+CppHighlighter::CppHighlighter() : parser(nullptr), query(nullptr) {
     parser = ts_parser_new();
     ts_parser_set_language(parser, tree_sitter_cpp());
 
@@ -136,7 +112,6 @@ CppHighlighter::CppHighlighter() : parser(nullptr), query(nullptr), old_tree(nul
 
 CppHighlighter::~CppHighlighter() {
     if (query) ts_query_delete(query);
-    if (old_tree) ts_tree_delete(old_tree);
     if (parser) ts_parser_delete(parser);
 }
 
@@ -156,7 +131,10 @@ std::vector<int32_t> CppHighlighter::highlight(const char* utf8_text, size_t len
         return tokens;
     }
 
-    // 1. Build UTF-8 byte offset to UTF-16 code unit mapping if text contains non-ASCII characters
+    // Khóa Mutex để đảm bảo an toàn tuyệt đối khi Coroutine gọi từ nhiều luồng
+    std::lock_guard<std::mutex> lock(mtx);
+
+    // 1. Chuyển đổi UTF-8 byte index sang UTF-16 code unit index cho Kotlin
     bool has_non_ascii = false;
     for (size_t i = 0; i < length; ++i) {
         if ((unsigned char)utf8_text[i] >= 0x80) {
@@ -199,19 +177,15 @@ std::vector<int32_t> CppHighlighter::highlight(const char* utf8_text, size_t len
         byte_to_char[length] = c;
     }
 
-    // 2. Parse string into syntax tree (inherently error tolerant)
-    TSTree* new_tree = ts_parser_parse_string(parser, old_tree, utf8_text, length);
-    if (!new_tree) {
+    // 2. Luôn parse mới 100% (truyền nullptr thay vì old_tree) để không bao giờ bị lệch vị trí
+    TSTree* tree = ts_parser_parse_string(parser, nullptr, utf8_text, length);
+    if (!tree) {
         return tokens;
     }
-    if (old_tree) {
-        ts_tree_delete(old_tree);
-    }
-    old_tree = new_tree;
 
-    TSNode root = ts_tree_root_node(new_tree);
+    TSNode root = ts_tree_root_node(tree);
 
-    // 3. Execute query
+    // 3. Thực thi Query
     TSQueryCursor* cursor = ts_query_cursor_new();
     ts_query_cursor_exec(cursor, query, root);
 
@@ -242,5 +216,6 @@ std::vector<int32_t> CppHighlighter::highlight(const char* utf8_text, size_t len
     }
 
     ts_query_cursor_delete(cursor);
+    ts_tree_delete(tree); // Xóa giải phóng RAM ngay sau khi parse xong
     return tokens;
 }

@@ -50,8 +50,12 @@ fun CenterEditorPanel(
     var showPopover by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    val visualTransformation = remember(state.syntaxHighlighter.tokens) {
-        TreeSitterVisualTransformation(state.syntaxHighlighter.tokens)
+    // 1. Đọc giá trị mảng tokens trực tiếp để Compose biết đường vẽ lại
+    val tokens = state.syntaxHighlighter.tokens.value
+
+    // 2. Nhớ theo mảng `tokens` (mỗi khi C++ parse xong có tokens mới -> vẽ lại ngay)
+    val visualTransformation = remember(tokens) {
+        TreeSitterVisualTransformation(tokens)
     }
 
     val fullFileName = state.fileName
