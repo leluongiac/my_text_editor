@@ -28,15 +28,15 @@ object CodeRunner {
                 requestMethod = "POST"
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/json")
-                connectTimeout = 8000
-                readTimeout = 12000
+                connectTimeout = 10000
+                readTimeout = 15000
                 doOutput = true
             }
 
-            // Build payload JSON chuẩn Piston
+            // DÙNG version: "*" ĐỂ PISTON TỰ ĐỘNG CHỌN BẢN GCC MỚI NHẤT
             val payload = JSONObject().apply {
                 put("language", "c++")
-                put("version", "10.2.0")
+                put("version", "*")
                 put("stdin", stdin)
                 val fileObj = JSONObject().apply {
                     put("name", "main.cpp")
@@ -49,19 +49,29 @@ object CodeRunner {
 
             val responseCode = conn.responseCode
             val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
-            val responseText = BufferedReader(InputStreamReader(stream)).use { it.readText() }
+            val responseText = BufferedReader(InputStreamReader(stream ?: conn.inputStream)).use { it.readText() }
 
             val elapsed = System.currentTimeMillis() - startTime
             val json = JSONObject(responseText)
 
-            // Kiểm tra Compile Error trước
+            // 1. Bắt thông báo lỗi từ server nếu có
+            if (json.has("message")) {
+                return@withContext ExecutionResult(
+                    output = "Server Message: " + json.getString("message"),
+                    isError = true,
+                    exitCode = responseCode,
+                    executionTimeMs = elapsed
+                )
+            }
+
+            // 2. Bắt lỗi biên dịch (Compile Error - GCC)
             if (json.has("compile")) {
                 val compileObj = json.getJSONObject("compile")
                 val compileCode = compileObj.optInt("code", 0)
                 if (compileCode != 0) {
                     val stderr = compileObj.optString("stderr").ifEmpty { compileObj.optString("output") }
                     return@withContext ExecutionResult(
-                        output = stderr,
+                        output = stderr.ifEmpty { "Lỗi biên dịch (Compile Error)" },
                         isError = true,
                         exitCode = compileCode,
                         executionTimeMs = elapsed
@@ -69,26 +79,33 @@ object CodeRunner {
                 }
             }
 
-            // Kết quả chạy runtime
+            // 3. Kết quả chạy (Runtime)
             if (json.has("run")) {
                 val runObj = json.getJSONObject("run")
                 val runCode = runObj.optInt("code", 0)
                 val stdout = runObj.optString("stdout")
                 val stderr = runObj.optString("stderr")
-                val output = if (stderr.isNotEmpty()) "$stdout\n[Stderr]:\n$stderr" else stdout
+                val output = runObj.optString("output")
+
+                val finalOutput = when {
+                    output.isNotEmpty() -> output
+                    stderr.isNotEmpty() -> "$stdout\n[Stderr]:\n$stderr"
+                    stdout.isNotEmpty() -> stdout
+                    else -> "[Chương trình kết thúc thành công (không có output)]"
+                }
 
                 return@withContext ExecutionResult(
-                    output = output.ifEmpty { "[Chương trình kết thúc nhưng không có output]" },
+                    output = finalOutput,
                     isError = runCode != 0,
                     exitCode = runCode,
                     executionTimeMs = elapsed
                 )
             }
 
-            ExecutionResult("Lỗi phản hồi từ máy chủ", true, -1, elapsed)
+            ExecutionResult("Phản hồi không xác định: $responseText", true, responseCode, elapsed)
         } catch (e: Exception) {
             val elapsed = System.currentTimeMillis() - startTime
-            ExecutionResult("Lỗi kết nối: ${e.localizedMessage ?: "Timeout"}", true, -1, elapsed)
+            ExecutionResult("Lỗi mạng: ${e.localizedMessage ?: "Timeout"}", true, -1, elapsed)
         }
     }
 }
