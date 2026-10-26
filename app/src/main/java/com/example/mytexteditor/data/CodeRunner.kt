@@ -2,7 +2,6 @@ package com.example.mytexteditor.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -18,7 +17,8 @@ data class ExecutionResult(
 )
 
 object CodeRunner {
-    private const val API_URL = "https://emkc.org/api/v2/piston/execute"
+    // Wandbox API - Chuyên dụng cho C/C++ GCC, miễn phí và không cần API Key
+    private const val API_URL = "https://wandbox.org/api/compile.json"
 
     suspend fun runCpp(code: String, stdin: String = ""): ExecutionResult = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
@@ -28,21 +28,18 @@ object CodeRunner {
                 requestMethod = "POST"
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/json")
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile)")
                 connectTimeout = 10000
-                readTimeout = 15000
+                readTimeout = 20000
                 doOutput = true
             }
 
-            // DÙNG version: "*" ĐỂ PISTON TỰ ĐỘNG CHỌN BẢN GCC MỚI NHẤT
+            // Payload chuẩn của Wandbox chạy GCC mới nhất
             val payload = JSONObject().apply {
-                put("language", "c++")
-                put("version", "*")
+                put("compiler", "gcc-head") // Phiên bản GCC mới nhất
+                put("code", code)
                 put("stdin", stdin)
-                val fileObj = JSONObject().apply {
-                    put("name", "main.cpp")
-                    put("content", code)
-                }
-                put("files", JSONArray().put(fileObj))
+                put("options", "c++23")     // Hỗ trợ cả C++23
             }
 
             OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()); it.flush() }
@@ -54,58 +51,42 @@ object CodeRunner {
             val elapsed = System.currentTimeMillis() - startTime
             val json = JSONObject(responseText)
 
-            // 1. Bắt thông báo lỗi từ server nếu có
-            if (json.has("message")) {
+            val status = json.optString("status", "0")
+            val compilerError = json.optString("compiler_error")
+            val programMessage = json.optString("program_message")
+            val programError = json.optString("program_error")
+            val programOutput = json.optString("program_output")
+
+            // 1. Nếu có lỗi biên dịch (Compile Error từ GCC)
+            if (compilerError.isNotEmpty() && status != "0") {
                 return@withContext ExecutionResult(
-                    output = "Server Message: " + json.getString("message"),
+                    output = compilerError,
                     isError = true,
-                    exitCode = responseCode,
+                    exitCode = status.toIntOrNull() ?: 1,
                     executionTimeMs = elapsed
                 )
             }
 
-            // 2. Bắt lỗi biên dịch (Compile Error - GCC)
-            if (json.has("compile")) {
-                val compileObj = json.getJSONObject("compile")
-                val compileCode = compileObj.optInt("code", 0)
-                if (compileCode != 0) {
-                    val stderr = compileObj.optString("stderr").ifEmpty { compileObj.optString("output") }
-                    return@withContext ExecutionResult(
-                        output = stderr.ifEmpty { "Lỗi biên dịch (Compile Error)" },
-                        isError = true,
-                        exitCode = compileCode,
-                        executionTimeMs = elapsed
-                    )
-                }
+            // 2. Kết quả chạy bình thường
+            val finalOutput = when {
+                programOutput.isNotEmpty() -> programOutput
+                programMessage.isNotEmpty() -> programMessage
+                compilerError.isNotEmpty() -> "[Warnings]:\n$compilerError\n$programMessage"
+                programError.isNotEmpty() -> "[Stderr]:\n$programError"
+                else -> "[Chương trình kết thúc (không có output)]"
             }
 
-            // 3. Kết quả chạy (Runtime)
-            if (json.has("run")) {
-                val runObj = json.getJSONObject("run")
-                val runCode = runObj.optInt("code", 0)
-                val stdout = runObj.optString("stdout")
-                val stderr = runObj.optString("stderr")
-                val output = runObj.optString("output")
+            val isSuccess = status == "0"
+            return@withContext ExecutionResult(
+                output = finalOutput,
+                isError = !isSuccess,
+                exitCode = status.toIntOrNull() ?: 0,
+                executionTimeMs = elapsed
+            )
 
-                val finalOutput = when {
-                    output.isNotEmpty() -> output
-                    stderr.isNotEmpty() -> "$stdout\n[Stderr]:\n$stderr"
-                    stdout.isNotEmpty() -> stdout
-                    else -> "[Chương trình kết thúc thành công (không có output)]"
-                }
-
-                return@withContext ExecutionResult(
-                    output = finalOutput,
-                    isError = runCode != 0,
-                    exitCode = runCode,
-                    executionTimeMs = elapsed
-                )
-            }
-
-            ExecutionResult("Phản hồi không xác định: $responseText", true, responseCode, elapsed)
         } catch (e: Exception) {
             val elapsed = System.currentTimeMillis() - startTime
-            ExecutionResult("Lỗi mạng: ${e.localizedMessage ?: "Timeout"}", true, -1, elapsed)
+            ExecutionResult("Lỗi kết nối: ${e.localizedMessage ?: "Timeout"}", true, -1, elapsed)
         }
     }
 }
