@@ -1,6 +1,5 @@
 package com.example.mytexteditor.ui.editor
 
-import androidx.compose.material3.CircularProgressIndicator
 import com.example.mytexteditor.data.CodeRunner
 import com.example.mytexteditor.data.ExecutionResult
 import com.example.mytexteditor.ui.components.GnomeConsoleSheet
@@ -271,7 +270,7 @@ fun CenterEditorPanel(
                         Text(text = displayFileName, color = Color.White, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold)
                         Text(text = displayDirPath, color = Color(0xFF9A9996), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                     }
-                    // 1. NÚT RUN (Đứng riêng chuẩn GNOME)
+                    // 1. NÚT RUN (Đứng riêng chuẩn GNOME - Không dùng Material3 spinner)
                     Box(
                         modifier = Modifier
                             .size(26.dp)
@@ -283,10 +282,9 @@ fun CenterEditorPanel(
                         contentAlignment = Alignment.Center
                     ) {
                         if (isRunningCode) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                color = Color.White,
-                                strokeWidth = 1.5.dp
+                            Text(
+                                text = "⏳",
+                                fontSize = 11.sp
                             )
                         } else {
                             Text(
