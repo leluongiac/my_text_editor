@@ -1,297 +1,351 @@
-package com.example.mytexteditor.ui.editor
+package com.example.mytexteditor.state
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.net.Uri
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import com.example.mytexteditor.data.CodeRunner
-import com.example.mytexteditor.data.ExecutionResult
-import com.example.mytexteditor.data.FileUtils
 import com.example.mytexteditor.model.Direction
 import com.example.mytexteditor.model.RightMode
-import com.example.mytexteditor.state.rememberEditorState
-import com.example.mytexteditor.ui.components.HeaderActionPill
-import com.example.mytexteditor.ui.theme.EditorColors
-import kotlinx.coroutines.launch
+import com.example.mytexteditor.syntax.AsyncSyntaxHighlighter
 
-@Composable
-fun EditorScreen() {
-    val state = rememberEditorState()
-    val context = LocalContext.current
-    val view = LocalView.current
-    val haptic = LocalHapticFeedback.current
-    val coroutineScope = rememberCoroutineScope()
+@Stable
+class EditorState {
+    var isZenMode by mutableStateOf(false)
+    var isWordWrap by mutableStateOf(false)
+    var editorFontSize by mutableFloatStateOf(14f)
+    var layoutResult: TextLayoutResult? = null
+    val syntaxHighlighter = AsyncSyntaxHighlighter()
+    var textFieldValue by mutableStateOf(
+        TextFieldValue(
+            text = """
+                #include <iostream>
+                #include <vector>
+                #include <string>
 
-    // Bắt cử chỉ Back của Android để thoát Zen Mode
-    BackHandler(enabled = state.isZenMode) {
-        state.isZenMode = false
+                using namespace std;
+
+                // Welcome to Tree-sitter C++ Editor!
+                int main() {
+                    vector<string> items = {"Hello", "from", "Tree-sitter", "C++!"};
+
+                    for (const auto& item : items) {
+                        cout << item << " ";
+                    }
+                    cout << endl;
+                    return 0;
+                }
+            """.trimIndent(),
+            selection = TextRange(0)
+        )
+    )
+    var currentUri by mutableStateOf<Uri?>(null)
+    var fileName by mutableStateOf("main.cpp")
+    var isModified by mutableStateOf(false)
+
+    init {
+        syntaxHighlighter.updateText(textFieldValue.text)
     }
 
-    LaunchedEffect(Unit) {
-        state.syntaxHighlighter.updateText(state.textFieldValue.text)
-    }
-
-    // RUNNER STATE (Được quản lý chung để RightPanel và CenterPanel cùng truy cập)
-    var isRunningCode by remember { mutableStateOf(false) }
-    var executionResult by remember { mutableStateOf<ExecutionResult?>(null) }
-    var isConsoleVisible by remember { mutableStateOf(false) }
-
-    val executeCodeAction: (String) -> Unit = { stdin ->
-        isRunningCode = true
-        isConsoleVisible = true
-        coroutineScope.launch {
-            val res = CodeRunner.runCpp(state.textFieldValue.text, stdin)
-            executionResult = res
-            isRunningCode = false
+    fun updateTextFieldValue(newValue: TextFieldValue, markModified: Boolean = true) {
+        if (newValue.text != textFieldValue.text) {
+            if (markModified) isModified = true
+            syntaxHighlighter.updateText(newValue.text)
         }
+        textFieldValue = newValue
     }
 
-    var showNewFileDialog by remember { mutableStateOf(false) }
-    var pendingNewFileAfterSave by remember { mutableStateOf(false) }
+    var isSelectMode by mutableStateOf(false)
+    var rightMode by mutableStateOf(RightMode.TYPING)
+    var isShiftMode by mutableStateOf(false)
+    var isSymbolMode by mutableStateOf(false)
+    var isCtrlPressed by mutableStateOf(false)
 
-    val openDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            try {
-                val content = context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    inputStream.bufferedReader(Charsets.UTF_8).readText()
-                } ?: ""
-                val name = FileUtils.getFileName(context, uri) ?: "untitled.kt"
-                state.currentUri = uri
-                state.fileName = name
-                state.updateTextFieldValue(TextFieldValue(content, TextRange(0)), markModified = false)
-                state.syntaxHighlighter.updateText(content)
-                state.clearHistory()
-                state.isModified = false
-                Toast.makeText(context, "Đã mở $name", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(context, "Lỗi mở file: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+    private val undoStack = ArrayDeque<TextFieldValue>()
+    private val redoStack = ArrayDeque<TextFieldValue>()
+
+    fun pushUndoSnapshot(snapshot: TextFieldValue) {
+        if (undoStack.isEmpty() || undoStack.last() != snapshot) {
+            undoStack.addLast(snapshot)
+            if (undoStack.size > 100) {
+                undoStack.removeFirst()
             }
         }
+        redoStack.clear()
     }
 
-    val createDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("*/*")
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val success = FileUtils.saveToFile(context, uri, state.textFieldValue.text)
-            if (success) {
-                val name = FileUtils.getFileName(context, uri) ?: state.fileName
-                if (pendingNewFileAfterSave) {
-                    pendingNewFileAfterSave = false
-                    state.currentUri = null
-                    state.fileName = "untitled.kt"
-                    state.updateTextFieldValue(TextFieldValue("", TextRange(0)), markModified = false)
-                    state.clearHistory()
-                    state.isModified = false
-                } else {
-                    state.currentUri = uri
-                    state.fileName = name
-                    state.isModified = false
-                    Toast.makeText(context, "Đã lưu $name!", Toast.LENGTH_SHORT).show()
+    fun clearHistory() {
+        undoStack.clear()
+        redoStack.clear()
+    }
+
+    fun onKey(key: String, context: Context) {
+        // haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+
+        when (key) {
+            "SHIFT" -> {
+                isShiftMode = !isShiftMode
+                isSelectMode = isShiftMode // Merged Shift & Text Selection
+                return
+            }
+
+            "?123", "123" -> {
+                isSymbolMode = true
+                return
+            }
+
+            "ABC" -> {
+                isSymbolMode = false
+                return
+            }
+
+            "CTRL" -> {
+                isCtrlPressed = !isCtrlPressed
+                return
+            }
+        }
+
+        // --- Handle CTRL Shortcuts ---
+        if (isCtrlPressed) {
+            val lower = key.lowercase()
+            when (lower) {
+                "z" -> {
+                    // Ctrl + Z: Undo
+                    if (undoStack.isNotEmpty()) {
+                        redoStack.addLast(textFieldValue)
+                        updateTextFieldValue(undoStack.removeLast())
+                        Toast.makeText(context, "Hoàn tác (Undo)", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Không còn thao tác để hoàn tác", Toast.LENGTH_SHORT).show()
+                    }
+                    isCtrlPressed = false
+                    return
+                }
+
+                "u" -> {
+                    // Ctrl + U: Redo
+                    if (redoStack.isNotEmpty()) {
+                        undoStack.addLast(textFieldValue)
+                        updateTextFieldValue(redoStack.removeLast())
+                        Toast.makeText(context, "Làm lại (Redo)", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Không còn thao tác để làm lại", Toast.LENGTH_SHORT).show()
+                    }
+                    isCtrlPressed = false
+                    return
+                }
+
+                "c" -> {
+                    // Ctrl + C: Copy
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val text = textFieldValue.text
+                    val selection = textFieldValue.selection
+                    val textToCopy = if (!selection.collapsed) {
+                        text.substring(selection.min, selection.max)
+                    } else {
+                        val startOfLine = text.lastIndexOf('\n', (selection.start - 1).coerceAtLeast(0))
+                            .let { if (it == -1) 0 else it + 1 }
+                        val endOfLine = text.indexOf('\n', selection.start).let { if (it == -1) text.length else it }
+                        text.substring(startOfLine, endOfLine)
+                    }
+                    if (textToCopy.isNotEmpty()) {
+                        clipboard.setPrimaryClip(ClipData.newPlainText("text", textToCopy))
+                        Toast.makeText(context, "Đã chép (Copy)", Toast.LENGTH_SHORT).show()
+                    }
+                    isCtrlPressed = false
+                    return
+                }
+
+                "v" -> {
+                    // Ctrl + V: Paste
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = clipboard.primaryClip
+                    if (clip != null && clip.itemCount > 0) {
+                        val pasteText = clip.getItemAt(0).text?.toString() ?: ""
+                        if (pasteText.isNotEmpty()) {
+                            pushUndoSnapshot(textFieldValue)
+                            val text = textFieldValue.text
+                            val selection = textFieldValue.selection
+                            val min = selection.min
+                            val max = selection.max
+                            val newText = StringBuilder(text).replace(min, max, pasteText).toString()
+                            updateTextFieldValue(TextFieldValue(newText, TextRange(min + pasteText.length)))
+                            Toast.makeText(context, "Đã dán (Paste)", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    isCtrlPressed = false
+                    return
+                }
+
+                "k" -> {
+                    // Ctrl + K: Cut
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val text = textFieldValue.text
+                    val selection = textFieldValue.selection
+                    if (!selection.collapsed) {
+                        val min = selection.min
+                        val max = selection.max
+                        val textToCut = text.substring(min, max)
+                        clipboard.setPrimaryClip(ClipData.newPlainText("text", textToCut))
+                        pushUndoSnapshot(textFieldValue)
+                        val newText = StringBuilder(text).delete(min, max).toString()
+                        updateTextFieldValue(TextFieldValue(newText, TextRange(min)))
+                        Toast.makeText(context, "Đã cắt (Cut)", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val startOfLine = text.lastIndexOf('\n', (selection.start - 1).coerceAtLeast(0))
+                            .let { if (it == -1) 0 else it + 1 }
+                        val endOfLine = text.indexOf('\n', selection.start)
+                            .let { if (it == -1) text.length else (it + 1).coerceAtMost(text.length) }
+                        if (startOfLine < text.length) {
+                            val textToCut = text.substring(startOfLine, endOfLine)
+                            clipboard.setPrimaryClip(ClipData.newPlainText("text", textToCut))
+                            pushUndoSnapshot(textFieldValue)
+                            val newText = StringBuilder(text).delete(startOfLine, endOfLine).toString()
+                            updateTextFieldValue(
+                                TextFieldValue(newText, TextRange(startOfLine.coerceAtMost(newText.length)))
+                            )
+                            Toast.makeText(context, "Đã cắt dòng (Cut)", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    isCtrlPressed = false
+                    return
+                }
+
+                else -> {
+                    // Other key clears CTRL latch and processes normally
+                    isCtrlPressed = false
+                }
+            }
+        }
+
+        // Before normal typing/backspacing, record undo state
+        if (key in listOf("SPACE", "ENTER", "ENT", "BACKSPACE", "⌫", "TAB")) {
+            pushUndoSnapshot(textFieldValue)
+        }
+
+        val text = textFieldValue.text
+        val selection = textFieldValue.selection
+
+        if (key == "BACKSPACE" || key == "⌫") {
+            if (selection.collapsed) {
+                if (selection.start > 0) {
+                    val start = selection.start
+                    val newText = StringBuilder(text).delete(start - 1, start).toString()
+                    updateTextFieldValue(TextFieldValue(newText, TextRange(start - 1)))
                 }
             } else {
-                pendingNewFileAfterSave = false
-                Toast.makeText(context, "Lỗi lưu file!", Toast.LENGTH_SHORT).show()
+                val min = selection.min
+                val max = selection.max
+                val newText = StringBuilder(text).delete(min, max).toString()
+                updateTextFieldValue(TextFieldValue(newText, TextRange(min)))
             }
         } else {
-            pendingNewFileAfterSave = false
-        }
-    }
-
-    val onSaveAction = {
-        if (state.currentUri != null) {
-            val success = FileUtils.saveToFile(context, state.currentUri!!, state.textFieldValue.text)
-            if (success) {
-                state.isModified = false
-                Toast.makeText(context, "Đã lưu!", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "Lỗi lưu file!", Toast.LENGTH_SHORT).show()
+            val insertText = when (key) {
+                "SPACE" -> " "
+                "TAB" -> "    "
+                "ENTER", "ENT" -> "\n"
+                else -> {
+                    if (key.length == 1 && key.first().isLetter()) {
+                        if (isShiftMode) key.uppercase() else key.lowercase()
+                    } else {
+                        key
+                    }
+                }
             }
-        } else {
-            createDocumentLauncher.launch(state.fileName)
+            val min = selection.min
+            val max = selection.max
+            val newText = StringBuilder(text).replace(min, max, insertText).toString()
+            updateTextFieldValue(TextFieldValue(newText, TextRange(min + insertText.length)))
         }
     }
 
-    val onSaveAsAction = { createDocumentLauncher.launch(state.fileName) }
+    fun onJoystickDirection(direction: Direction, haptic: HapticFeedback) {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 
-    val onNewFileAction = {
-        if (state.isModified) {
-            showNewFileDialog = true
-        } else {
-            state.currentUri = null
-            state.fileName = "untitled.kt"
-            state.updateTextFieldValue(TextFieldValue("", TextRange(0)), markModified = false)
-            state.clearHistory()
-            state.isModified = false
-            Toast.makeText(context, "Đã tạo file mới", Toast.LENGTH_SHORT).show()
-        }
-    }
+        val text = textFieldValue.text
+        val selection = textFieldValue.selection
+        val currentCursor = selection.end
+        val anchor = if (isSelectMode) selection.start else currentCursor
 
-    val onOpenFileAction = { openDocumentLauncher.launch(arrayOf("*/*")) }
-    val onMenuAction = { Toast.makeText(context, "Menu (Tính năng sẽ cập nhật)", Toast.LENGTH_SHORT).show() }
-
-    if (showNewFileDialog) {
-        Dialog(
-            onDismissRequest = { showNewFileDialog = false },
-            properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = true)
-        ) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF282828))
-                    .border(BorderStroke(1.dp, Color(0xFF3E3E3E)), RoundedCornerShape(16.dp))
-                    .padding(20.dp)
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text(text = "Tạo file mới", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                    Text(text = "Bạn có muốn lưu file hiện tại trước khi tạo mới không?", color = Color(0xFFCCCCCC), fontSize = 14.sp, lineHeight = 20.sp)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        HeaderActionPill(text = "Hủy", onClick = { showNewFileDialog = false })
-                        Spacer(modifier = Modifier.width(8.dp))
-                        HeaderActionPill(
-                            text = "Không lưu",
-                            bgColor = Color(0xFF552222),
-                            onClick = {
-                                showNewFileDialog = false
-                                state.currentUri = null
-                                state.fileName = "untitled.kt"
-                                state.updateTextFieldValue(TextFieldValue("", TextRange(0)), markModified = false)
-                                state.clearHistory()
-                                state.isModified = false
-                            }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        HeaderActionPill(
-                            text = "Lưu",
-                            isAccent = true,
-                            onClick = {
-                                showNewFileDialog = false
-                                if (state.currentUri != null) {
-                                    val success = FileUtils.saveToFile(context, state.currentUri!!, state.textFieldValue.text)
-                                    if (success) {
-                                        state.currentUri = null
-                                        state.fileName = "untitled.kt"
-                                        state.updateTextFieldValue(TextFieldValue("", TextRange(0)), markModified = false)
-                                        state.clearHistory()
-                                        state.isModified = false
-                                    }
-                                } else {
-                                    pendingNewFileAfterSave = true
-                                    createDocumentLauncher.launch(state.fileName)
-                                }
-                            }
-                        )
+        var newCursor = currentCursor
+        when (direction) {
+            Direction.RIGHT -> newCursor = (currentCursor + 1).coerceAtMost(text.length)
+            Direction.LEFT -> newCursor = (currentCursor - 1).coerceAtLeast(0)
+            Direction.DOWN, Direction.UP -> {
+                val layout = layoutResult
+                if (layout == null) {
+                    newCursor = if (direction == Direction.UP) {
+                        getFallbackUp(text, currentCursor)
+                    } else {
+                        getFallbackDown(text, currentCursor)
+                    }
+                } else {
+                    val safeCursor = currentCursor.coerceIn(0, text.length)
+                    val currentLine = layout.getLineForOffset(safeCursor)
+                    val targetLine = if (direction == Direction.UP) currentLine - 1 else currentLine + 1
+                    if (targetLine in 0 until layout.lineCount) {
+                        val x = layout.getCursorRect(safeCursor).left
+                        val y = (layout.getLineTop(targetLine) + layout.getLineBottom(targetLine)) / 2f
+                        newCursor = layout.getOffsetForPosition(Offset(x, y))
+                    } else {
+                        // SỬA TẠI ĐÂY: Nếu vượt biên thì nhảy về kịch đầu hoặc kịch cuối
+                        newCursor = if (direction == Direction.UP) 0 else text.length
                     }
                 }
             }
         }
-    }
 
-    val onKeyAction = remember(state, context, view) {
-        { key: String -> state.onKey(key, context) }
-    }
-
-    val onJoystickAction = remember(state, haptic) {
-        { direction: Direction -> state.onJoystickDirection(direction, haptic) }
-    }
-
-    val onToggleModeAction = remember(state, haptic) {
-        { mode: RightMode ->
-            state.rightMode = mode
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        }
-    }
-
-    // GNOME Container với padding tiêu chuẩn 6dp
-    Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(EditorColors.workspace)
-            .padding(6.dp),
-        horizontalArrangement = Arrangement.spacedBy(if (state.isZenMode) 0.dp else 8.dp)
-    ) {
-        // LEFT PANEL (Ẩn mượt khi Zen Mode)
-        AnimatedVisibility(
-            visible = !state.isZenMode,
-            enter = expandHorizontally(tween(180)) + fadeIn(tween(150)),
-            exit = shrinkHorizontally(tween(180)) + fadeOut(tween(150)),
-            modifier = Modifier.weight(0.27f).fillMaxHeight()
-        ) {
-            LeftPanel(
-                isShiftMode = state.isShiftMode,
-                isSymbolMode = state.isSymbolMode,
-                isCtrlPressed = state.isCtrlPressed,
-                onKey = onKeyAction,
-                onNewFile = onNewFileAction,
-                onOpenFile = onOpenFileAction
-            )
+        val newSelection = if (isSelectMode) {
+            TextRange(anchor, newCursor)
+        } else {
+            TextRange(newCursor)
         }
 
-        // CENTER EDITOR PANEL (Tự bung 100% khi Zen Mode)
-        CenterEditorPanel(
-            state = state,
-            isRunningCode = isRunningCode,
-            executionResult = executionResult,
-            isConsoleVisible = isConsoleVisible,
-            onCloseConsole = { isConsoleVisible = false },
-            onReRun = { stdin -> executeCodeAction(stdin) },
-            modifier = Modifier
-                .weight(if (state.isZenMode) 1f else 0.46f)
-                .fillMaxHeight()
-        )
+        textFieldValue = textFieldValue.copy(selection = newSelection)
+    }
 
-        // RIGHT PANEL (Ẩn mượt khi Zen Mode)
-        AnimatedVisibility(
-            visible = !state.isZenMode,
-            enter = expandHorizontally(tween(180)) + fadeIn(tween(150)),
-            exit = shrinkHorizontally(tween(180)) + fadeOut(tween(150)),
-            modifier = Modifier.weight(0.27f).fillMaxHeight()
-        ) {
-            RightPanel(
-                rightMode = state.rightMode,
-                isShiftMode = state.isShiftMode,
-                isSymbolMode = state.isSymbolMode,
-                isRunningCode = isRunningCode,
-                onKey = onKeyAction,
-                onJoystickDirection = onJoystickAction,
-                onToggleMode = onToggleModeAction,
-                onSave = onSaveAction,
-                onSaveAs = onSaveAsAction,
-                onRun = { executeCodeAction("") },
-                onToggleZen = { state.isZenMode = true },
-                onMenu = onMenuAction
-            )
+    private fun getFallbackUp(text: String, cursor: Int): Int {
+        val safeCursor = cursor.coerceIn(0, text.length)
+        val currentLineStart = if (safeCursor == 0) 0 else {
+            text.lastIndexOf('\n', safeCursor - 1) + 1
         }
+        if (currentLineStart == 0) return safeCursor
+
+        val previousLineEnd = currentLineStart - 1
+        val previousLineStart = if (previousLineEnd == 0) 0 else {
+            text.lastIndexOf('\n', previousLineEnd - 1) + 1
+        }
+        val column = safeCursor - currentLineStart
+        return (previousLineStart + column).coerceAtMost(previousLineEnd)
+    }
+
+    private fun getFallbackDown(text: String, cursor: Int): Int {
+        val safeCursor = cursor.coerceIn(0, text.length)
+        val currentLineStart = if (safeCursor == 0) 0 else {
+            text.lastIndexOf('\n', safeCursor - 1) + 1
+        }
+        val currentLineEnd = text.indexOf('\n', safeCursor).let {
+            if (it == -1) text.length else it
+        }
+        if (currentLineEnd == text.length) return safeCursor
+
+        val nextLineStart = currentLineEnd + 1
+        val nextLineEnd = text.indexOf('\n', nextLineStart).let {
+            if (it == -1) text.length else it
+        }
+        val column = safeCursor - currentLineStart
+        return (nextLineStart + column).coerceAtMost(nextLineEnd)
     }
 }
+
+@Composable
+fun rememberEditorState(): EditorState = remember { EditorState() }
