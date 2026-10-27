@@ -1,10 +1,17 @@
 package com.example.mytexteditor.ui.editor
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.mytexteditor.model.Direction
 import com.example.mytexteditor.model.RightMode
 import com.example.mytexteditor.ui.components.*
@@ -16,11 +23,14 @@ fun RightPanel(
     rightMode: RightMode,
     isShiftMode: Boolean,
     isSymbolMode: Boolean,
+    isRunningCode: Boolean,
     onKey: (String) -> Unit,
     onJoystickDirection: (Direction) -> Unit,
     onToggleMode: (RightMode) -> Unit,
     onSave: () -> Unit,
     onSaveAs: () -> Unit,
+    onRun: () -> Unit,
+    onToggleZen: () -> Unit,
     onMenu: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -29,21 +39,54 @@ fun RightPanel(
         verticalArrangement = Arrangement.SpaceBetween,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Top Row Actions
+        // TOP ACTIONS: Ergonomic Bar (Run -> Save -> Zen Mode -> Menu)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.End,
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Nút Run chuẩn GNOME Accent đặt bên ngoài
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(if (isRunningCode) Color(0xFF383838) else Color(0xFF2EC27E))
+                    .clickable(enabled = !isRunningCode) { onRun() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (isRunningCode) {
+                    Text(text = "⏳", fontSize = 13.sp)
+                } else {
+                    Text(
+                        text = "▶",
+                        color = Color.Black,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(start = 2.dp)
+                    )
+                }
+            }
+
             PadIconButton(
                 iconRes = if (isShiftMode) R.drawable.ic_save_as else R.drawable.ic_save,
                 contentDescription = if (isShiftMode) "Save As" else "Save",
                 isAccent = isShiftMode,
                 onClick = if (isShiftMode) onSaveAs else onSave
             )
-            Spacer(modifier = Modifier.width(8.dp))
+
+            // Nút Zen Mode nhanh
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF333333))
+                    .clickable { onToggleZen() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(text = "⤢", color = Color(0xFFDDDDDD), fontSize = 16.sp)
+            }
+
             PadIconButton(iconRes = R.drawable.ic_menu, contentDescription = "Menu", onClick = onMenu)
         }
 

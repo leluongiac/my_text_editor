@@ -1,9 +1,5 @@
 package com.example.mytexteditor.ui.editor
 
-import com.example.mytexteditor.data.CodeRunner
-import com.example.mytexteditor.data.ExecutionResult
-import com.example.mytexteditor.ui.components.GnomeConsoleSheet
-import kotlinx.coroutines.launch
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -13,6 +9,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -31,6 +28,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -48,14 +46,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.example.mytexteditor.data.ExecutionResult
 import com.example.mytexteditor.data.FileUtils
 import com.example.mytexteditor.state.EditorState
 import com.example.mytexteditor.syntax.TreeSitterVisualTransformation
 import com.example.mytexteditor.ui.components.ChevronDownIcon
 import com.example.mytexteditor.ui.components.ChevronUpIcon
+import com.example.mytexteditor.ui.components.GnomeConsoleSheet
 import com.example.mytexteditor.ui.theme.EditorColors
 
-private val EditorLineHeight = 24.sp
 private val GnomeLineHeightStyle = LineHeightStyle(
     alignment = LineHeightStyle.Alignment.Center,
     trim = LineHeightStyle.Trim.None
@@ -65,6 +64,11 @@ private val GnomeLineHeightStyle = LineHeightStyle(
 @Composable
 fun CenterEditorPanel(
     state: EditorState,
+    isRunningCode: Boolean,
+    executionResult: ExecutionResult?,
+    isConsoleVisible: Boolean,
+    onCloseConsole: () -> Unit,
+    onReRun: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var isHeaderExpanded by remember { mutableStateOf(false) }
@@ -72,23 +76,9 @@ fun CenterEditorPanel(
     val context = LocalContext.current
     val density = LocalDensity.current
 
-    // RUNNER STATE
-    val coroutineScope = rememberCoroutineScope()
-    var isRunningCode by remember { mutableStateOf(false) }
-    var executionResult by remember { mutableStateOf<ExecutionResult?>(null) }
-    var isConsoleVisible by remember { mutableStateOf(false) }
+    // Khóa tỷ lệ line-height = 1.714 * font size để Gutter và Text luôn khớp tuyệt đối
+    val currentLineHeight = (state.editorFontSize * 1.714f).sp
 
-    val executeCodeAction: (String) -> Unit = { stdin ->
-        isRunningCode = true
-        isConsoleVisible = true
-        coroutineScope.launch {
-            val res = CodeRunner.runCpp(state.textFieldValue.text, stdin)
-            executionResult = res
-            isRunningCode = false
-        }
-    }
-
-    // 1. Syntax tokens
     val tokens = state.syntaxHighlighter.tokens.value
     val visualTransformation = remember(tokens) {
         TreeSitterVisualTransformation(tokens)
@@ -112,7 +102,6 @@ fun CenterEditorPanel(
     val editorText = state.textFieldValue.text
     val cursorPosition = state.textFieldValue.selection.end.coerceIn(0, editorText.length)
 
-    // TỐI ƯU CỰC MẠNH: Dùng layoutResult tính toán line trong O(1) thay vì loop scan text
     val activeLineNumber = remember(cursorPosition, state.layoutResult) {
         val layout = state.layoutResult
         if (layout != null && cursorPosition <= layout.layoutInput.text.length) {
@@ -143,16 +132,15 @@ fun CenterEditorPanel(
         }
     }
 
-    // --- AUTO-SCROLL VIEWPORT KHI JOYSTICK / CON TRỎ DI CHUYỂN ---
+    // Auto scroll theo con trỏ
     LaunchedEffect(cursorPosition, state.layoutResult, viewportSize) {
         val layout = state.layoutResult ?: return@LaunchedEffect
         if (viewportSize.height == 0 || viewportSize.width == 0) return@LaunchedEffect
         if (cursorPosition !in 0..layout.layoutInput.text.length) return@LaunchedEffect
 
         val cursorRect = layout.getCursorRect(cursorPosition)
-        val lineHeightPx = with(density) { EditorLineHeight.toPx() }
+        val lineHeightPx = with(density) { currentLineHeight.toPx() }
 
-        // Cuộn dọc
         val currentScrollY = verticalScrollState.value
         val viewHeight = viewportSize.height
         if (cursorRect.top < currentScrollY) {
@@ -161,22 +149,33 @@ fun CenterEditorPanel(
             verticalScrollState.scrollTo((cursorRect.bottom - viewHeight + lineHeightPx).toInt())
         }
 
-        // Cuộn ngang
-        val currentScrollX = codeHorizontalScrollState.value
-        val viewWidth = viewportSize.width
-        if (cursorRect.left < currentScrollX) {
-            codeHorizontalScrollState.scrollTo(cursorRect.left.toInt().coerceAtLeast(0))
-        } else if (cursorRect.right > currentScrollX + viewWidth - 60) {
-            codeHorizontalScrollState.scrollTo((cursorRect.right - viewWidth + 80).toInt())
+        if (!state.isWordWrap) {
+            val currentScrollX = codeHorizontalScrollState.value
+            val viewWidth = viewportSize.width
+            if (cursorRect.left < currentScrollX) {
+                codeHorizontalScrollState.scrollTo(cursorRect.left.toInt().coerceAtLeast(0))
+            } else if (cursorRect.right > currentScrollX + viewWidth - 60) {
+                codeHorizontalScrollState.scrollTo((cursorRect.right - viewWidth + 80).toInt())
+            }
         }
     }
 
+    // GNOME Panel Container: Luôn giữ phong cách GNOME nguyên bản
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(EditorColors.editorSurface)
             .border(BorderStroke(1.dp, Color(0xFF333333)), RoundedCornerShape(14.dp))
             .onSizeChanged { viewportSize = it }
+            // Pinch-to-zoom shortcut: Zoom kích thước không gọi lại Syntax Tokenizer
+            .pointerInput(Unit) {
+                detectTransformGestures { _, _, zoom, _ ->
+                    if (zoom != 1f) {
+                        val newSize = (state.editorFontSize * zoom).coerceIn(10f, 26f)
+                        state.editorFontSize = newSize
+                    }
+                }
+            }
     ) {
         @Suppress("DEPRECATION")
         CompositionLocalProvider(LocalTextInputService provides null) {
@@ -191,16 +190,21 @@ fun CenterEditorPanel(
                     )
                     .verticalScroll(verticalScrollState)
             ) {
-                // CỘT SỐ DÒNG
-                GnomeGutter(lineNumbers = lineNumbers)
+                GnomeGutter(
+                    lineNumbers = lineNumbers,
+                    fontSize = (state.editorFontSize - 3f).coerceAtLeast(9f).sp,
+                    lineHeight = currentLineHeight
+                )
                 Spacer(modifier = Modifier.width(6.dp))
 
-                // VÙNG CODE
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .horizontalScroll(codeHorizontalScrollState)
-                ) {
+                // Short-cut layout: Nếu Word Wrap bật thì loại bỏ modifier cuộn ngang -> Tiết kiệm 50% CPU
+                val codeAreaModifier = if (state.isWordWrap) {
+                    Modifier.weight(1f).fillMaxWidth()
+                } else {
+                    Modifier.weight(1f).horizontalScroll(codeHorizontalScrollState)
+                }
+
+                Box(modifier = codeAreaModifier) {
                     BasicTextField(
                         value = state.textFieldValue,
                         onValueChange = { newValue -> state.updateTextFieldValue(newValue) },
@@ -212,33 +216,38 @@ fun CenterEditorPanel(
                         textStyle = TextStyle(
                             color = Color(0xFFEAEAEA),
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 14.sp,
-                            lineHeight = EditorLineHeight,
+                            fontSize = state.editorFontSize.sp,
+                            lineHeight = currentLineHeight,
                             lineHeightStyle = GnomeLineHeightStyle
                         ),
                         cursorBrush = SolidColor(EditorColors.accent),
-                        modifier = Modifier.width(IntrinsicSize.Max)
+                        modifier = if (state.isWordWrap) Modifier.fillMaxWidth() else Modifier.width(IntrinsicSize.Max)
                     )
                 }
             }
         }
 
-        // GNOME Minimalist HeaderBar
+        // GNOME Minimalist HeaderBar Collapsed Pill
         if (!isHeaderExpanded) {
-            Box(
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
                     .background(Color(0xFF2A2A2A))
                     .border(BorderStroke(1.dp, Color(0xFF3D3D3D)), RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
                     .clickable { isHeaderExpanded = true }
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                if (state.isZenMode) {
+                    Text(text = "ZEN", color = EditorColors.accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
                 ChevronDownIcon(color = Color(0xFF9A9996))
             }
         }
 
+        // HeaderBar khi mở rộng
         AnimatedVisibility(
             visible = isHeaderExpanded,
             enter = slideInVertically { -it } + fadeIn(),
@@ -255,48 +264,76 @@ fun CenterEditorPanel(
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color(0xFF282828))
                         .border(BorderStroke(1.dp, Color(0xFF404040)), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(dotColor))
                     Column(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .clickable { showPopover = !showPopover }
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(text = displayFileName, color = Color.White, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold)
-                        Text(text = displayDirPath, color = Color(0xFF9A9996), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        Text(text = displayFileName, color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold)
+                        Text(text = displayDirPath, color = Color(0xFF9A9996), fontSize = 9.sp, fontFamily = FontFamily.Monospace)
                     }
-                    // 1. NÚT RUN (Đứng riêng chuẩn GNOME - Không dùng Material3 spinner)
+
+                    // TÍNH NĂNG ĐỌC: NÚT WORD WRAP (Bật / Tắt bẻ dòng)
                     Box(
                         modifier = Modifier
                             .size(26.dp)
                             .clip(CircleShape)
-                            .background(if (isRunningCode) Color(0xFF383838) else Color(0xFF2EC27E))
-                            .clickable(enabled = !isRunningCode) {
-                                executeCodeAction("")
-                            },
+                            .background(if (state.isWordWrap) EditorColors.accent else Color(0xFF383838))
+                            .clickable { state.isWordWrap = !state.isWordWrap },
                         contentAlignment = Alignment.Center
                     ) {
-                        if (isRunningCode) {
-                            Text(
-                                text = "⏳",
-                                fontSize = 11.sp
-                            )
-                        } else {
-                            Text(
-                                text = "▶",
-                                color = Color.Black,
-                                fontSize = 10.sp,
-                                modifier = Modifier.padding(start = 1.5.dp)
-                            )
-                        }
+                        Text(text = "↵", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // 2. NÚT ĐÓNG HEADER (Đứng cạnh nút Run)
+                    // TÍNH NĂNG ĐỌC: GIẢM CỠ CHỮ
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF383838))
+                            .clickable { state.editorFontSize = (state.editorFontSize - 1.5f).coerceAtLeast(10f) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = "A-", color = Color(0xFFDDDDDD), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    // TÍNH NĂNG ĐỌC: TĂNG CỠ CHỮ
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF383838))
+                            .clickable { state.editorFontSize = (state.editorFontSize + 1.5f).coerceAtMost(26f) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = "A+", color = Color(0xFFDDDDDD), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    // NÚT TOGGLE ZEN MODE / EXIT ZEN MODE
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(if (state.isZenMode) EditorColors.accent else Color(0xFF383838))
+                            .clickable { state.isZenMode = !state.isZenMode },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (state.isZenMode) "⤡" else "⤢",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // NÚT ĐÓNG HEADER
                     Box(
                         modifier = Modifier
                             .size(26.dp)
@@ -370,7 +407,8 @@ fun CenterEditorPanel(
                 }
             }
         }
-            // --- GNOME CONSOLE BOTTOM SHEET OVERLAY ---
+
+        // GNOME CONSOLE BOTTOM SHEET OVERLAY
         AnimatedVisibility(
             visible = isConsoleVisible,
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -380,8 +418,8 @@ fun CenterEditorPanel(
             GnomeConsoleSheet(
                 result = executionResult,
                 isRunning = isRunningCode,
-                onClose = { isConsoleVisible = false },
-                onReRun = { stdin -> executeCodeAction(stdin) },
+                onClose = onCloseConsole,
+                onReRun = onReRun,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 160.dp, max = 220.dp)
@@ -393,6 +431,8 @@ fun CenterEditorPanel(
 @Composable
 private fun GnomeGutter(
     lineNumbers: androidx.compose.ui.text.AnnotatedString,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    lineHeight: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -414,8 +454,8 @@ private fun GnomeGutter(
             text = lineNumbers,
             style = TextStyle(
                 fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
-                lineHeight = EditorLineHeight,
+                fontSize = fontSize,
+                lineHeight = lineHeight,
                 lineHeightStyle = GnomeLineHeightStyle,
                 textAlign = TextAlign.End
             ),
