@@ -1,5 +1,6 @@
 package com.example.mytexteditor.ui.editor
 
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -76,6 +77,7 @@ fun RightPanel(
             )
 
             // Nút Zen Mode nhanh
+            // Nút Zen Mode nhanh
             Box(
                 modifier = Modifier
                     .size(36.dp)
@@ -84,7 +86,7 @@ fun RightPanel(
                     .clickable { onToggleZen() },
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = "⤢", color = Color(0xFFDDDDDD), fontSize = 16.sp)
+                ZenModeIcon(modifier = Modifier.size(16.dp))
             }
 
             PadIconButton(iconRes = R.drawable.ic_menu, contentDescription = "Menu", onClick = onMenu)

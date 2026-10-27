@@ -1,5 +1,6 @@
 package com.example.mytexteditor.ui.editor
 
+import com.example.mytexteditor.ui.components.*
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -289,10 +290,14 @@ fun CenterEditorPanel(
                             .clickable { state.isWordWrap = !state.isWordWrap },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(text = "↵", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        if (state.isWordWrap) {
+                            FormatTextWrapIcon(modifier = Modifier.size(13.dp))
+                        } else {
+                            FormatTextNoWrapIcon(modifier = Modifier.size(13.dp))
+                        }
                     }
 
-                    // TÍNH NĂNG ĐỌC: GIẢM CỠ CHỮ
+                    // Nút Giảm cỡ chữ (A-)
                     Box(
                         modifier = Modifier
                             .size(26.dp)
@@ -301,10 +306,10 @@ fun CenterEditorPanel(
                             .clickable { state.editorFontSize = (state.editorFontSize - 1.5f).coerceAtLeast(10f) },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(text = "A-", color = Color(0xFFDDDDDD), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        FormatTextSmallerIcon(modifier = Modifier.size(13.dp))
                     }
 
-                    // TÍNH NĂNG ĐỌC: TĂNG CỠ CHỮ
+                    // Nút Tăng cỡ chữ (A+)
                     Box(
                         modifier = Modifier
                             .size(26.dp)
@@ -313,10 +318,10 @@ fun CenterEditorPanel(
                             .clickable { state.editorFontSize = (state.editorFontSize + 1.5f).coerceAtMost(26f) },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(text = "A+", color = Color(0xFFDDDDDD), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        FormatTextLargerIcon(modifier = Modifier.size(13.dp))
                     }
 
-                    // NÚT TOGGLE ZEN MODE / EXIT ZEN MODE
+                    // Nút Zen Mode toggle
                     Box(
                         modifier = Modifier
                             .size(26.dp)
@@ -325,12 +330,11 @@ fun CenterEditorPanel(
                             .clickable { state.isZenMode = !state.isZenMode },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (state.isZenMode) "⤡" else "⤢",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        if (state.isZenMode) {
+                            ZenModeExitIcon(modifier = Modifier.size(14.dp))
+                        } else {
+                            ZenModeIcon(modifier = Modifier.size(14.dp))
+                        }
                     }
 
                     // NÚT ĐÓNG HEADER
