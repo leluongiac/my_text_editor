@@ -103,34 +103,17 @@ fun CenterEditorPanel(
     val editorText = state.textFieldValue.text
     val cursorPosition = state.textFieldValue.selection.end.coerceIn(0, editorText.length)
 
-    val activeLineNumber = remember(cursorPosition, state.layoutResult) {
-        val layout = state.layoutResult
-        if (layout != null && cursorPosition <= layout.layoutInput.text.length) {
-            layout.getLineForOffset(cursorPosition) + 1
-        } else {
-            1
-        }
-    }
-
     val totalLines = remember(editorText) {
         editorText.count { it == '\n' } + 1
     }
 
-    val lineNumbers = remember(totalLines, activeLineNumber) {
-        buildAnnotatedString {
+    val plainLineNumbers = remember(totalLines) {
+        StringBuilder(totalLines * 4).apply {
             for (i in 1..totalLines) {
                 if (i > 1) append('\n')
-                val isActive = (i == activeLineNumber)
-                withStyle(
-                    SpanStyle(
-                        color = if (isActive) Color(0xFFF6F5F4) else Color.White.copy(alpha = 0.28f),
-                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                ) {
-                    append(i.toString())
-                }
+                append(i)
             }
-        }
+        }.toString()
     }
 
     // Auto scroll theo con trỏ
@@ -192,7 +175,7 @@ fun CenterEditorPanel(
                     .verticalScroll(verticalScrollState)
             ) {
                 GnomeGutter(
-                    lineNumbers = lineNumbers,
+                    plainLineNumbers = plainLineNumbers,
                     fontSize = (state.editorFontSize - 3f).coerceAtLeast(9f).sp,
                     lineHeight = currentLineHeight
                 )
@@ -434,7 +417,7 @@ fun CenterEditorPanel(
 
 @Composable
 private fun GnomeGutter(
-    lineNumbers: androidx.compose.ui.text.AnnotatedString,
+    plainLineNumbers: String,
     fontSize: androidx.compose.ui.unit.TextUnit,
     lineHeight: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier
@@ -455,8 +438,9 @@ private fun GnomeGutter(
             .padding(end = 8.dp)
     ) {
         Text(
-            text = lineNumbers,
+            text = plainLineNumbers,
             style = TextStyle(
+                color = Color.White.copy(alpha = 0.3f),
                 fontFamily = FontFamily.Monospace,
                 fontSize = fontSize,
                 lineHeight = lineHeight,

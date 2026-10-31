@@ -1,6 +1,5 @@
 package com.example.mytexteditor.ui.components
 
-import android.os.SystemClock
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -55,73 +54,70 @@ fun KeyButton(
     val context = LocalContext.current
     val density = LocalDensity.current
 
-    // Ngưỡng vuốt: giảm xuống 16dp để nhạy hơn, thời gian 280ms
-    val flickDistanceThresholdPx = remember(density) { with(density) { 16.dp.toPx() } }
-    val flickTimeThresholdMs = 280L
+    val flickDistanceThresholdPx = remember(density) { with(density) { 18.dp.toPx() } }
 
     Box(
         modifier = modifier
             .height(54.dp)
-            // QUAN TRỌNG: pointerInput(Unit) giúp KHÔNG BAO GIỜ bị restart coroutine khi ấn ?123
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     isPressed = true
 
-                    // 1. PHẢN HỒI XÚC GIÁC TỨC THÌ (ZERO LATENCY HAPTIC) NGAY KHI CHẠM
+                    val hasFlick = currentSecondaryText != null && currentOnFlick != null
+
+                    // 1. Phản hồi xúc giác tức thì ngay khi chạm
                     EditorHaptics.keyPress(view, context)
 
-                    val startY = down.position.y
-                    val startTime = SystemClock.uptimeMillis()
+                    // 2. Nếu phím KHÔNG CÓ FLICK: Kích hoạt ngay lập tức tại sự kiện DOWN!
+                    // Giúp loại bỏ hoàn toàn 80-140ms dwell time
+                    if (!hasFlick && !currentIsRepeatable) {
+                        currentOnClick()
+                    }
 
                     var repeatJob: Job? = null
                     if (currentIsRepeatable) {
                         currentOnClick()
                         repeatJob = scope.launch {
-                            delay(350)
+                            delay(300)
                             while (isActive) {
                                 EditorHaptics.keyPress(view, context)
                                 currentOnClick()
-                                delay(45)
+                                delay(40)
                             }
                         }
                     }
 
-                    var endY = startY
-                    var wasReleased = false
+                    var isFlickTriggered = false
+                    val startY = down.position.y
 
                     try {
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             change.consume()
+
+                            // Phát hiện Flick ngay trong lúc di chuyển ngón tay mà không cần chờ nhấc tay!
+                            if (hasFlick && !isFlickTriggered) {
+                                val deltaY = change.position.y - startY
+                                if (deltaY < -flickDistanceThresholdPx) {
+                                    isFlickTriggered = true
+                                    currentOnFlick?.invoke()
+                                }
+                            }
+
                             if (!change.pressed) {
-                                endY = change.position.y
-                                wasReleased = true
+                                // Nếu là phím có flick mà người dùng nhấc tay lên và chưa vuốt -> Coi như click
+                                if (hasFlick && !isFlickTriggered) {
+                                    currentOnClick()
+                                }
                                 break
                             }
                         }
                     } finally {
                         repeatJob?.cancel()
                         isPressed = false
-                    }
-
-                    // 2. XỬ LÝ NHẢ TAY (RELEASE)
-                    if (wasReleased && !currentIsRepeatable) {
-                        val deltaY = endY - startY
-                        val elapsedTime = SystemClock.uptimeMillis() - startTime
-
-                        // Kiểm tra nếu là thao tác gạt lên (Flick Up)
-                        if (currentSecondaryText != null &&
-                            currentOnFlick != null &&
-                            deltaY < -flickDistanceThresholdPx &&
-                            elapsedTime < flickTimeThresholdMs
-                        ) {
-                            currentOnFlick?.invoke()
-                        } else {
-                            currentOnClick()
-                        }
                     }
                 }
             }

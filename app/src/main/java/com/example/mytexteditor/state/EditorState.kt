@@ -74,11 +74,19 @@ class EditorState {
     private val redoStack = ArrayDeque<TextFieldValue>()
 
     fun pushUndoSnapshot(snapshot: TextFieldValue) {
-        if (undoStack.isEmpty() || undoStack.last() != snapshot) {
-            undoStack.addLast(snapshot)
-            if (undoStack.size > 100) {
-                undoStack.removeFirst()
+        if (undoStack.isNotEmpty()) {
+            val last = undoStack.last()
+            // Kiểm tra nhanh độ dài chuỗi và vị trí con trỏ trước để tránh so sánh toàn bộ string O(N)
+            if (last.text.length == snapshot.text.length &&
+                last.selection == snapshot.selection &&
+                last.text == snapshot.text
+            ) {
+                return
             }
+        }
+        undoStack.addLast(snapshot)
+        if (undoStack.size > 100) {
+            undoStack.removeFirst()
         }
         redoStack.clear()
     }
